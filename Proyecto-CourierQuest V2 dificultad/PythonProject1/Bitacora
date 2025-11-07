@@ -1,0 +1,69 @@
+
+
+1. "Crea un videojuego en Python con Pygame que simule un repartidor en bicicleta dentro de una ciudad representada en cuadrícula."
+
+
+
+2. "Diseña la estructura de datos para representar un pedido que incluya id, ubicación de recogida, ubicación de entrega, pago, duración, peso, prioridad y estado."
+
+
+
+3. "Implementa un estado global del juego con información del jugador, inventario, pedidos disponibles, pedidos completados, meta de ingresos, tiempo y condiciones del mapa."
+
+
+
+4. "Integra un API externo para obtener el mapa de la ciudad en formato JSON, con calles, edificios y parques."
+
+
+5. "Agrega soporte para modo offline con archivos JSON locales en caso de que la API no esté disponible."
+
+
+6. "Crea un sistema de caché que guarde las respuestas de la API para poder reutilizarlas sin conexión."
+
+
+7. "Implementa un algoritmo QuickSort que ordene los pedidos por prioridad de manera descendente."
+
+
+
+8. "Implementa un algoritmo MergeSort que ordene los pedidos por el tiempo límite de entrega más cercano."
+
+
+9. "Implementa un algoritmo InsertionSort que ordene los pedidos por la distancia al jugador usando distancia Manhattan."
+
+
+10. "Crea una cola de prioridad optimizada que mantenga los pedidos ordenados por prioridad utilizando inserción binaria."
+
+11. "Agrega un sistema de historial de estados del juego que permita deshacer los últimos movimientos del jugador de manera eficiente en memoria."
+
+12. "Desarrolla un sistema de clima dinámico que cambie entre estados como lluvia, tormenta, nublado y calor, utilizando una cadena de Markov."
+
+13. "Haz que las condiciones climáticas afecten la velocidad del jugador y el consumo de resistencia con multiplicadores distintos."
+
+14. "Implementa un sistema de resistencia para el jugador que disminuya al moverse y aumente al descansar, con estados normal, cansado y exhausto."
+
+15. "Crea un sistema de reputación que aumente con entregas puntuales y disminuya con retrasos, cancelaciones o pedidos perdidos."
+
+16. "Agrega un menú principal con opciones de nuevo juego, cargar partida, tutorial, ver puntajes y salir."
+
+17. "implemeta las imagenes para mostrar el mapa, jugador, edificios, parques y efectos climáticos en Pygame."
+
+18. "Implementa un sistema de guardado de partidas en archivos binarios con validación de datos y capacidad de cargar partidas guardadas."
+
+19. "Agrega un sistema de puntajes que se almacene en un archivo JSON y se muestre en pantalla ordenado de mayor a menor."
+
+20. "Diseña un tutorial en pantalla que guíe al jugador en los primeros pasos explicando controles y reglas básicas."
+
+21. "Mejora la interfaz gráfica en Pygame con menús, resaltado de opciones, colores para mensajes y notificaciones de clima."
+
+22. "Optimiza el rendimiento del juego asegurando que mantenga al menos 30 FPS en hardware modesto."
+
+23. "Implementa manejo de errores robusto para la API, archivos y entradas del usuario con mensajes claros."
+
+24. "Agrega comentarios detallados y documentación para cada función y clase en el código."
+
+25. "puedes hacer que so la resistencia llega a 0, el jugador queda exhausto y no puede moverse hasta recuperarse a 30."
+
+26. "creo que no se están guardando los datos bien en puntajes ya que cuando termino de jugar todas las posiciones de la tabla se cambian por la nueva y debería de ser como un podio con las mejores que se ordenen según el puntaje me tienes que dar todos los def completos con los cambios que necesiten para que funcione el programa"
+
+27. "elimina los prints de debug y agrega un print final que diga gracias por jugar y muestre el puntaje obtenido"
+
