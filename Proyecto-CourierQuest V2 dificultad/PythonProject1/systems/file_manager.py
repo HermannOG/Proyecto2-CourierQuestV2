@@ -51,7 +51,6 @@ class RobustFileManager:
                 }
             }
 
-            # ✅ Crear backup del guardado anterior si existe
             if os.path.exists(save_file):
                 backup_file = f"backups/slot{slot}_backup_{int(time.time())}.sav"
                 try:
