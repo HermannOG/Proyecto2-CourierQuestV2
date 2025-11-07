@@ -28,35 +28,42 @@ class EasyAI(CPUPlayer):
         self.random_target_interval = 3.0
 
     def make_decision(self, dt: float):
-        """Toma de decisiones aleatoria."""
+        """Toma de decisiones aleatoria - CORREGIDO."""
         self.random_target_timer += dt
 
         # Entregar si está en el dropoff
         if self.inventory:
-            self.interact_at_position()
+            delivered = self.interact_at_position()
+            if delivered:
+                return  # AGREGADO: Salir después de entregar
 
         # Si tiene orden, ir al pickup o dropoff
         if self.current_order:
             if self.action_state == "moving_to_pickup":
                 if self.pos.x == self.current_order.pickup.x and self.pos.y == self.current_order.pickup.y:
-                    self.interact_at_position()
+                    picked_up = self.interact_at_position()
+                    if picked_up:
+                        return  # AGREGADO: Salir después de recoger para procesar el nuevo estado
                 else:
                     self._random_move_towards(self.current_order.pickup)
             elif self.action_state == "moving_to_dropoff":
                 if self.inventory:
                     order = self.inventory[0]
                     if self.pos.x == order.dropoff.x and self.pos.y == order.dropoff.y:
-                        self.interact_at_position()
+                        delivered = self.interact_at_position()
+                        if delivered:
+                            return  # AGREGADO: Salir después de entregar
                     else:
                         self._random_move_towards(order.dropoff)
-        else:
-            # Elegir nueva orden aleatoriamente
-            if self.random_target_timer >= self.random_target_interval:
-                self._choose_random_order()
-                self.random_target_timer = 0
+            return  # AGREGADO: Salir si tiene orden activa
 
-            if not self.current_order:
-                self._random_walk()
+        # Elegir nueva orden aleatoriamente
+        if self.random_target_timer >= self.random_target_interval:
+            self._choose_random_order()
+            self.random_target_timer = 0
+
+        if not self.current_order:
+            self._random_walk()
 
     def _choose_random_order(self):
         """Elige una orden disponible al azar."""
@@ -144,7 +151,7 @@ class MediumAI(CPUPlayer):
         self.recalculation_timer = 0
 
     def make_decision(self, dt: float):
-        """Toma de decisiones con evaluación heurística."""
+        """Toma de decisiones con evaluación heurística - CORREGIDO."""
         self.recalculation_timer += dt
 
         # Verificar si necesita recuperar stamina
@@ -156,23 +163,27 @@ class MediumAI(CPUPlayer):
         if self.inventory:
             delivered = self.interact_at_position()
             if delivered:
-                return
+                return  # AGREGADO: Salir después de entregar
 
         # Si tiene orden actual, seguir con ella
         if self.current_order:
             if self.action_state == "moving_to_pickup":
                 if self.pos.x == self.current_order.pickup.x and self.pos.y == self.current_order.pickup.y:
-                    self.interact_at_position()
+                    picked_up = self.interact_at_position()
+                    if picked_up:
+                        return  # AGREGADO: Salir después de recoger para procesar el nuevo estado
                 else:
                     self._greedy_move_towards(self.current_order.pickup)
-                return
+                return  # AGREGADO: Salir si está en moving_to_pickup
             elif self.action_state == "moving_to_dropoff" and self.inventory:
                 order = self.inventory[0]
                 if self.pos.x == order.dropoff.x and self.pos.y == order.dropoff.y:
-                    self.interact_at_position()
+                    delivered = self.interact_at_position()
+                    if delivered:
+                        return  # AGREGADO: Salir después de entregar
                 else:
                     self._greedy_move_towards(order.dropoff)
-                return
+                return  # AGREGADO: Salir si está en moving_to_dropoff
 
         # Evaluar y elegir la mejor orden
         if self.recalculation_timer >= self.recalculation_interval:
@@ -284,7 +295,7 @@ class HardAI(CPUPlayer):
         self.max_stuck = 10
 
     def make_decision(self, dt: float):
-        """Toma de decisiones con A* y replanificación."""
+        """Toma de decisiones con A* y replanificación - CORREGIDO."""
         self.replan_timer += dt
 
         # Recuperar stamina si está baja
@@ -300,7 +311,7 @@ class HardAI(CPUPlayer):
             if delivered:
                 self.current_path = []
                 self.path_index = 0
-                return
+                return  # AGREGADO: Salir después de entregar
 
         # Seguir camino si existe
         if self.current_path and self.path_index < len(self.current_path):
@@ -311,15 +322,23 @@ class HardAI(CPUPlayer):
         if self.current_order:
             if self.action_state == "moving_to_pickup":
                 if self.pos.x == self.current_order.pickup.x and self.pos.y == self.current_order.pickup.y:
-                    self.interact_at_position()
+                    picked_up = self.interact_at_position()
+                    if picked_up:
+                        self.current_path = []  # AGREGADO: Limpiar el camino
+                        self.path_index = 0  # AGREGADO: Resetear índice
+                        return  # AGREGADO: Salir después de recoger para procesar el nuevo estado
                 else:
                     self._calculate_optimal_path(self.current_order.pickup)
             elif self.action_state == "moving_to_dropoff" and self.inventory:
                 if self.pos.x == self.inventory[0].dropoff.x and self.pos.y == self.inventory[0].dropoff.y:
-                    self.interact_at_position()
+                    delivered = self.interact_at_position()
+                    if delivered:
+                        self.current_path = []
+                        self.path_index = 0
+                        return  # AGREGADO: Salir después de entregar
                 else:
                     self._calculate_optimal_path(self.inventory[0].dropoff)
-            return
+            return  # AGREGADO: Salir si tiene orden activa
 
         # Replanificar secuencia óptima
         if self.replan_timer >= self.replan_interval or not self.current_order:

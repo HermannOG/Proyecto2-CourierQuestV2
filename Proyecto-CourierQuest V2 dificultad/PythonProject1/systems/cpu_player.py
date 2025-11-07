@@ -418,3 +418,5 @@ class CPUPlayer:
         return (f"CPUPlayer(id={self.player_id}, difficulty={self.difficulty}, "
                 f"pos=({self.pos.x},{self.pos.y}), money=${self.money}, "
                 f"reputation={self.reputation}, stamina={self.stamina:.1f})")
+
+    interact_at_position
