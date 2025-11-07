@@ -69,7 +69,7 @@ class CPUPlayer:
 
         # Timers para decisiones
         self.decision_timer = 0
-        self.decision_interval = 0.5
+        self.decision_interval = 0.1
 
         # Dirección visual
         self.direction = "east"
@@ -107,7 +107,7 @@ class CPUPlayer:
                     return
 
         self.pos = Position(5, 5)
-        print(f"⚠️ CPU usando posición fallback: (5, 5)")
+        print(f" CPU usando posición fallback: (5, 5)")
 
     def _is_position_valid_for_cpu(self, x: int, y: int) -> bool:
         """Verifica si una posición es válida para iniciar el CPU."""
@@ -136,44 +136,74 @@ class CPUPlayer:
                 )
                 self.pathfinder = PathFinder(self.graph)
                 self.tsp_solver = TSPSolver(self.pathfinder)
-                print(f"✓ Pathfinding inicializado para {self.player_id}")
+                print(f"Pathfinding inicializado para {self.player_id}")
         except Exception as e:
-            print(f"⚠️ Error inicializando pathfinding para {self.player_id}: {e}")
+            print(f" Error inicializando pathfinding para {self.player_id}: {e}")
             self.graph = None
             self.pathfinder = None
             self.tsp_solver = None
 
     def update(self, dt: float):
-        """Actualiza el estado del CPU Player cada frame."""
+        """
+        Actualiza el estado del CPU Player cada frame.
+        MEJORADO: Mejor manejo de exhausto y recuperación.
+        """
         self.decision_timer += dt
         self.time_since_last_move += dt
 
+        # SIEMPRE actualizar recuperación de stamina
         self._update_stamina_recovery(dt)
 
+        # Verificar si se recuperó del exhausto
         if self.stamina <= 0:
             self.is_exhausted = True
         elif self.stamina >= self.exhaustion_recovery_threshold:
+            if self.is_exhausted:
+                print(f"CPU {self.player_id}: ✅ Recuperado ({self.stamina:.1f}/{self.exhaustion_recovery_threshold})")
             self.is_exhausted = False
 
         self._clean_expired_orders()
 
+        # Solo tomar decisiones si NO está exhausto
         if self.decision_timer >= self.decision_interval and not self.is_exhausted:
             self.make_decision(dt)
             self.decision_timer = 0
+        elif self.is_exhausted:
+            # Si está exhausto, mostrar mensaje periódicamente
+            if not hasattr(self, '_last_exhausted_message'):
+                self._last_exhausted_message = 0
+
+            current_time = time.time()
+            if current_time - self._last_exhausted_message > 3.0:
+                remaining = self.exhaustion_recovery_threshold - self.stamina
+                print(f"CPU {self.player_id}: ⏸️ EXHAUSTO - Esperando recuperar {remaining:.1f} pts más")
+                self._last_exhausted_message = current_time
 
     def make_decision(self, dt: float):
         """Método principal de toma de decisiones."""
         raise NotImplementedError("Subclasses must implement make_decision()")
 
     def execute_move(self, target_pos: Position, dt: float) -> bool:
-        """Ejecuta un movimiento hacia una posición objetivo."""
+        """
+        Ejecuta un movimiento hacia una posición objetivo.
+        MEJORADO: Se detiene completamente si no hay suficiente stamina.
+        """
         if self.time_since_last_move < self.move_cooldown:
             return False
 
+        # CRÍTICO: No moverse si está exhausto
         if self.is_exhausted:
             return False
 
         if not self._is_valid_move(target_pos):
+            return False
+
+        # NUEVO: Calcular el costo ANTES de moverse y verificar si hay suficiente stamina
+        stamina_cost = self._calculate_stamina_cost(target_pos)
+
+        # Si no hay suficiente stamina para el movimiento, NO moverse
+        if self.stamina < stamina_cost:
+            print(f"CPU {self.player_id}: Stamina insuficiente para moverse ({self.stamina:.1f} < {stamina_cost:.1f})")
             return False
 
         self._update_direction(target_pos)
@@ -181,13 +211,18 @@ class CPUPlayer:
         old_pos = self.pos
         self.pos = target_pos
 
-        stamina_cost = self._calculate_stamina_cost(target_pos)
+        # Restar stamina DESPUÉS de validar que hay suficiente
         self.stamina -= stamina_cost
 
         self.total_distance_traveled += 1
 
         self.last_move_time = time.time()
         self.time_since_last_move = 0
+
+        # Verificar si quedó exhausto después del movimiento
+        if self.stamina <= 0:
+            self.is_exhausted = True
+            print(f"CPU {self.player_id}: ¡EXHAUSTO! ({self.stamina:.1f}/{self.exhaustion_recovery_threshold})")
 
         return True
 
@@ -332,20 +367,44 @@ class CPUPlayer:
         return base_cost
 
     def _update_stamina_recovery(self, dt: float):
-        """Actualiza la recuperación de stamina."""
-        if self.time_since_last_move < 1.0:
+        """
+        Actualiza la recuperación de stamina.
+        MEJORADO: Recuperación más rápida cuando está parado.
+        """
+        # Solo recuperar si ha pasado al menos 0.5 segundos sin moverse
+        if self.time_since_last_move < 0.5:
             return
 
+        # Tasa base de recuperación (5 puntos por segundo)
         base_recovery = 5.0 * dt
 
+        # BONUS: Recuperación más rápida si está parado más tiempo
+        if self.time_since_last_move >= 2.0:
+            base_recovery *= 1.5  # 50% más rápido si lleva 2+ segundos parado
+
+        # Verificar si está en un parque
         if self.pos and self.pos.y < len(self.game.tiles) and self.pos.x < len(self.game.tiles[self.pos.y]):
             tile_char = self.game.tiles[self.pos.y][self.pos.x]
             tile_info = self.game.legend.get(tile_char, {})
             tile_type = tile_info.get('tipo', 'street')
 
+            # BONUS PARQUE: +15 puntos por segundo adicionales
             if tile_type == 'park':
-                base_recovery += 15.0 * dt
+                park_bonus = 15.0 * dt
+                base_recovery += park_bonus
 
+                # Mensaje periódico cuando está en parque exhausto
+                if self.is_exhausted and not hasattr(self, '_last_park_message'):
+                    self._last_park_message = 0
+
+                if self.is_exhausted:
+                    current_time = time.time()
+                    if current_time - self._last_park_message > 4.0:
+                        remaining = self.exhaustion_recovery_threshold - self.stamina
+                        print(f"CPU {self.player_id}: 🌳 En PARQUE - Recuperando +20/seg (Faltan {remaining:.1f} pts)")
+                        self._last_park_message = current_time
+
+        # Aplicar recuperación
         self.stamina = min(self.stamina + base_recovery, self.max_stamina)
 
     def _clean_expired_orders(self):
@@ -419,4 +478,3 @@ class CPUPlayer:
                 f"pos=({self.pos.x},{self.pos.y}), money=${self.money}, "
                 f"reputation={self.reputation}, stamina={self.stamina:.1f})")
 
-    interact_at_position
