@@ -2095,6 +2095,10 @@ class CourierQuest:
             if order.status == "picked_up":
                 self.draw_order_marker(order, order.dropoff, "D", is_dropoff=True, in_inventory=True)
 
+        if self.cpu_enabled and self.cpu_player and self.cpu_player.inventory:
+            for order in self.cpu_player.inventory:
+                self.draw_order_marker(order, order.dropoff, "D", is_dropoff=True, in_inventory=False)
+
     def draw_player(self):
         """Dibuja el jugador con imagen PNG o indicadores de estado."""
         screen_x = self.player_pos.x * TILE_SIZE + self.map_offset_x + 2
@@ -3056,4 +3060,3 @@ class CourierQuest:
             self.draw()
 
         pygame.quit()
-

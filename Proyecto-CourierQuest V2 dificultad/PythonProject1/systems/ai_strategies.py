@@ -1,6 +1,7 @@
 """
 Estrategias de IA para el CPU Player
 Implementa los tres niveles de dificultad: Fácil, Medio, Difícil
+VERSIÓN FINAL CORREGIDA - Todas las interacciones funcionan correctamente
 """
 
 import random
@@ -28,40 +29,50 @@ class EasyAI(CPUPlayer):
         self.random_target_interval = 3.0
 
     def make_decision(self, dt: float):
-        """Toma de decisiones aleatoria - CORREGIDO."""
+        """Toma de decisiones aleatoria - VERSIÓN FINAL CORREGIDA."""
         self.random_target_timer += dt
 
-        # Entregar si está en el dropoff
+        # PRIMERO: Intentar entregar si tiene paquetes en el inventario
         if self.inventory:
-            delivered = self.interact_at_position()
-            if delivered:
-                return  # AGREGADO: Salir después de entregar
+            # Verificar si está en alguna posición de dropoff
+            for order in list(self.inventory):
+                if self.pos.x == order.dropoff.x and self.pos.y == order.dropoff.y:
+                    delivered = self.interact_at_position()
+                    if delivered:
+                        return  # Salir después de entregar
 
-        # Si tiene orden, ir al pickup o dropoff
+        # SEGUNDO: Si tiene orden activa, trabajar en ella
         if self.current_order:
             if self.action_state == "moving_to_pickup":
+                # Si está en el pickup, intentar recoger
                 if self.pos.x == self.current_order.pickup.x and self.pos.y == self.current_order.pickup.y:
                     picked_up = self.interact_at_position()
                     if picked_up:
-                        return  # AGREGADO: Salir después de recoger para procesar el nuevo estado
+                        return  # Salir después de recoger para procesar el nuevo estado
                 else:
+                    # Moverse hacia el pickup
                     self._random_move_towards(self.current_order.pickup)
+                return  # Salir si está trabajando en pickup
+
             elif self.action_state == "moving_to_dropoff":
                 if self.inventory:
                     order = self.inventory[0]
+                    # Si está en el dropoff, intentar entregar
                     if self.pos.x == order.dropoff.x and self.pos.y == order.dropoff.y:
                         delivered = self.interact_at_position()
                         if delivered:
-                            return  # AGREGADO: Salir después de entregar
+                            return  # Salir después de entregar
                     else:
+                        # Moverse hacia el dropoff
                         self._random_move_towards(order.dropoff)
-            return  # AGREGADO: Salir si tiene orden activa
+                return  # Salir si está trabajando en dropoff
 
-        # Elegir nueva orden aleatoriamente
+        # TERCERO: Si no tiene orden, elegir una nueva
         if self.random_target_timer >= self.random_target_interval:
             self._choose_random_order()
             self.random_target_timer = 0
 
+        # CUARTO: Si aún no tiene orden, caminar aleatoriamente
         if not self.current_order:
             self._random_walk()
 
@@ -151,7 +162,7 @@ class MediumAI(CPUPlayer):
         self.recalculation_timer = 0
 
     def make_decision(self, dt: float):
-        """Toma de decisiones con evaluación heurística - CORREGIDO."""
+        """Toma de decisiones con evaluación heurística - VERSIÓN FINAL CORREGIDA."""
         self.recalculation_timer += dt
 
         # Verificar si necesita recuperar stamina
@@ -159,33 +170,40 @@ class MediumAI(CPUPlayer):
             self._move_to_nearest_park()
             return
 
-        # Entregar si está en dropoff
+        # PRIMERO: Intentar entregar si tiene paquetes
         if self.inventory:
-            delivered = self.interact_at_position()
-            if delivered:
-                return  # AGREGADO: Salir después de entregar
-
-        # Si tiene orden actual, seguir con ella
-        if self.current_order:
-            if self.action_state == "moving_to_pickup":
-                if self.pos.x == self.current_order.pickup.x and self.pos.y == self.current_order.pickup.y:
-                    picked_up = self.interact_at_position()
-                    if picked_up:
-                        return  # AGREGADO: Salir después de recoger para procesar el nuevo estado
-                else:
-                    self._greedy_move_towards(self.current_order.pickup)
-                return  # AGREGADO: Salir si está en moving_to_pickup
-            elif self.action_state == "moving_to_dropoff" and self.inventory:
-                order = self.inventory[0]
+            for order in list(self.inventory):
                 if self.pos.x == order.dropoff.x and self.pos.y == order.dropoff.y:
                     delivered = self.interact_at_position()
                     if delivered:
-                        return  # AGREGADO: Salir después de entregar
-                else:
-                    self._greedy_move_towards(order.dropoff)
-                return  # AGREGADO: Salir si está en moving_to_dropoff
+                        return  # Salir después de entregar
 
-        # Evaluar y elegir la mejor orden
+        # SEGUNDO: Si tiene orden actual, seguir con ella
+        if self.current_order:
+            if self.action_state == "moving_to_pickup":
+                # Si está en el pickup, intentar recoger
+                if self.pos.x == self.current_order.pickup.x and self.pos.y == self.current_order.pickup.y:
+                    picked_up = self.interact_at_position()
+                    if picked_up:
+                        return  # Salir después de recoger para procesar el nuevo estado
+                else:
+                    # Moverse hacia el pickup
+                    self._greedy_move_towards(self.current_order.pickup)
+                return  # Salir si está trabajando en pickup
+
+            elif self.action_state == "moving_to_dropoff" and self.inventory:
+                order = self.inventory[0]
+                # Si está en el dropoff, intentar entregar
+                if self.pos.x == order.dropoff.x and self.pos.y == order.dropoff.y:
+                    delivered = self.interact_at_position()
+                    if delivered:
+                        return  # Salir después de entregar
+                else:
+                    # Moverse hacia el dropoff
+                    self._greedy_move_towards(order.dropoff)
+                return  # Salir si está trabajando en dropoff
+
+        # TERCERO: Evaluar y elegir la mejor orden
         if self.recalculation_timer >= self.recalculation_interval:
             self._evaluate_and_choose_best_order()
             self.recalculation_timer = 0
@@ -295,7 +313,7 @@ class HardAI(CPUPlayer):
         self.max_stuck = 10
 
     def make_decision(self, dt: float):
-        """Toma de decisiones con A* y replanificación - CORREGIDO."""
+        """Toma de decisiones con A* y replanificación - VERSIÓN FINAL CORREGIDA."""
         self.replan_timer += dt
 
         # Recuperar stamina si está baja
@@ -305,42 +323,49 @@ class HardAI(CPUPlayer):
             self._follow_current_path()
             return
 
-        # Entregar si está en dropoff
+        # PRIMERO: Intentar entregar si tiene paquetes
         if self.inventory:
-            delivered = self.interact_at_position()
-            if delivered:
-                self.current_path = []
-                self.path_index = 0
-                return  # AGREGADO: Salir después de entregar
+            for order in list(self.inventory):
+                if self.pos.x == order.dropoff.x and self.pos.y == order.dropoff.y:
+                    delivered = self.interact_at_position()
+                    if delivered:
+                        self.current_path = []
+                        self.path_index = 0
+                        return  # Salir después de entregar
 
-        # Seguir camino si existe
+        # SEGUNDO: Seguir camino si existe
         if self.current_path and self.path_index < len(self.current_path):
             self._follow_current_path()
             return
 
-        # Si tiene orden pero sin camino, planear ruta
+        # TERCERO: Si tiene orden pero sin camino, planear ruta
         if self.current_order:
             if self.action_state == "moving_to_pickup":
+                # Si está en el pickup, intentar recoger
                 if self.pos.x == self.current_order.pickup.x and self.pos.y == self.current_order.pickup.y:
                     picked_up = self.interact_at_position()
                     if picked_up:
-                        self.current_path = []  # AGREGADO: Limpiar el camino
-                        self.path_index = 0  # AGREGADO: Resetear índice
-                        return  # AGREGADO: Salir después de recoger para procesar el nuevo estado
+                        self.current_path = []  # Limpiar el camino
+                        self.path_index = 0  # Resetear índice
+                        return  # Salir después de recoger para procesar el nuevo estado
                 else:
+                    # Calcular camino hacia el pickup
                     self._calculate_optimal_path(self.current_order.pickup)
+
             elif self.action_state == "moving_to_dropoff" and self.inventory:
+                # Si está en el dropoff, intentar entregar
                 if self.pos.x == self.inventory[0].dropoff.x and self.pos.y == self.inventory[0].dropoff.y:
                     delivered = self.interact_at_position()
                     if delivered:
                         self.current_path = []
                         self.path_index = 0
-                        return  # AGREGADO: Salir después de entregar
+                        return  # Salir después de entregar
                 else:
+                    # Calcular camino hacia el dropoff
                     self._calculate_optimal_path(self.inventory[0].dropoff)
-            return  # AGREGADO: Salir si tiene orden activa
+            return  # Salir si tiene orden activa
 
-        # Replanificar secuencia óptima
+        # CUARTO: Replanificar secuencia óptima
         if self.replan_timer >= self.replan_interval or not self.current_order:
             self._plan_optimal_delivery_sequence()
             self.replan_timer = 0
@@ -387,11 +412,11 @@ class HardAI(CPUPlayer):
             self.path_index += 1
             self.stuck_counter = 0
 
-            # Llegó al final
+            # Llegó al final del camino
             if self.path_index >= len(self.current_path):
                 self.current_path = []
                 self.path_index = 0
-                self.interact_at_position()
+                # NO llamar interact_at_position aquí, se llamará en el próximo ciclo
         else:
             # Movimiento falló, replanificar
             self.stuck_counter += 1
