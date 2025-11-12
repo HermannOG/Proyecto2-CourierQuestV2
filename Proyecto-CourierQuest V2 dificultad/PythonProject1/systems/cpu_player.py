@@ -125,20 +125,39 @@ class CPUPlayer:
         return tile_type != 'building' and not is_blocked
 
     def initialize_pathfinding(self):
-        """Inicializa las estructuras de grafos para pathfinding."""
+        """
+        Inicializa las estructuras de grafos para pathfinding.
+        MEJORADO: Más validaciones y logging.
+        """
         try:
-            if self.game.tiles and self.game.legend:
-                self.graph = WeightedGraph(
-                    self.game.city_width,
-                    self.game.city_height,
-                    self.game.tiles,
-                    self.game.legend
-                )
-                self.pathfinder = PathFinder(self.graph)
-                self.tsp_solver = TSPSolver(self.pathfinder)
-                print(f"Pathfinding inicializado para {self.player_id}")
+            if not self.game.tiles or not self.game.legend:
+                print(f" CPU {self.player_id}: No hay tiles o legend disponibles")
+                self.graph = None
+                self.pathfinder = None
+                self.tsp_solver = None
+                return
+
+            print(f"CPU {self.player_id}: Construyendo grafo de pathfinding...")
+
+            self.graph = WeightedGraph(
+                self.game.city_width,
+                self.game.city_height,
+                self.game.tiles,
+                self.game.legend
+            )
+
+            self.pathfinder = PathFinder(self.graph)
+            self.tsp_solver = TSPSolver(self.pathfinder)
+
+            # Debug: Verificar el grafo
+            self.debug_pathfinding_graph()
+
+            print(f"✓ CPU {self.player_id}: Pathfinding inicializado correctamente")
+
         except Exception as e:
-            print(f" Error inicializando pathfinding para {self.player_id}: {e}")
+            print(f"✗ CPU {self.player_id}: Error inicializando pathfinding: {e}")
+            import traceback
+            traceback.print_exc()
             self.graph = None
             self.pathfinder = None
             self.tsp_solver = None
@@ -369,43 +388,63 @@ class CPUPlayer:
     def _update_stamina_recovery(self, dt: float):
         """
         Actualiza la recuperación de stamina.
-        MEJORADO: Recuperación más rápida cuando está parado.
+        MEJORADO: Recuperación rápida en parques, lenta fuera de ellos.
         """
-        # Solo recuperar si ha pasado al menos 0.5 segundos sin moverse
-        if self.time_since_last_move < 0.5:
+        # Verificar posición válida
+        if self.pos.y >= len(self.game.tiles) or self.pos.x >= len(self.game.tiles[self.pos.y]):
+            # Recuperación pasiva mínima si no puede verificar el tile
+            passive_recovery = 2.0 * dt  # 2 puntos por segundo
+            self.stamina = min(self.max_stamina, self.stamina + passive_recovery)
             return
 
-        # Tasa base de recuperación (5 puntos por segundo)
-        base_recovery = 5.0 * dt
+        tile_char = self.game.tiles[self.pos.y][self.pos.x]
+        tile_info = self.game.legend.get(tile_char, {})
 
-        # BONUS: Recuperación más rápida si está parado más tiempo
-        if self.time_since_last_move >= 2.0:
-            base_recovery *= 1.5  # 50% más rápido si lleva 2+ segundos parado
+        # Obtener tipo y nombre del tile
+        tile_type = tile_info.get('tipo', '').lower()
+        tile_name = tile_info.get('name', '').lower()
 
-        # Verificar si está en un parque
-        if self.pos and self.pos.y < len(self.game.tiles) and self.pos.x < len(self.game.tiles[self.pos.y]):
-            tile_char = self.game.tiles[self.pos.y][self.pos.x]
-            tile_info = self.game.legend.get(tile_char, {})
-            tile_type = tile_info.get('tipo', 'street')
+        # Verificar si es parque (por tipo o nombre)
+        is_park = (tile_type == 'park' or
+                   'park' in tile_type or
+                   'parque' in tile_name or
+                   'parque' in tile_type)
 
-            # BONUS PARQUE: +15 puntos por segundo adicionales
-            if tile_type == 'park':
-                park_bonus = 15.0 * dt
-                base_recovery += park_bonus
+        if is_park:
+            # RECUPERACIÓN RÁPIDA EN PARQUES (igual que el jugador)
+            recovery_rate = 15.0  # Puntos por segundo en parques
+            recovery_amount = recovery_rate * dt
+            old_stamina = self.stamina
+            self.stamina = min(self.max_stamina, self.stamina + recovery_amount)
 
-                # Mensaje periódico cuando está en parque exhausto
-                if self.is_exhausted and not hasattr(self, '_last_park_message'):
-                    self._last_park_message = 0
+            # Log cada segundo aproximadamente
+            if not hasattr(self, '_last_recovery_log'):
+                self._last_recovery_log = 0
 
-                if self.is_exhausted:
-                    current_time = time.time()
-                    if current_time - self._last_park_message > 4.0:
-                        remaining = self.exhaustion_recovery_threshold - self.stamina
-                        print(f"CPU {self.player_id}: 🌳 En PARQUE - Recuperando +20/seg (Faltan {remaining:.1f} pts)")
-                        self._last_park_message = current_time
+            import time
+            current_time = time.time()
+            if current_time - self._last_recovery_log >= 1.0:
+                if self.stamina < self.max_stamina:
+                    print(
+                        f"CPU {self.player_id}: 🌳 Recuperando en PARQUE (+{recovery_rate}/s): {old_stamina:.1f} → {self.stamina:.1f}")
+                self._last_recovery_log = current_time
+        else:
+            # Recuperación pasiva LENTA cuando NO está en parque
+            passive_recovery_rate = 2.0  # 2 puntos por segundo (mucho más lento que en parque)
+            recovery_amount = passive_recovery_rate * dt
+            old_stamina = self.stamina
+            self.stamina = min(self.max_stamina, self.stamina + recovery_amount)
 
-        # Aplicar recuperación
-        self.stamina = min(self.stamina + base_recovery, self.max_stamina)
+            # Log ocasional solo si está bajo de stamina
+            if not hasattr(self, '_last_passive_log'):
+                self._last_passive_log = 0
+
+            import time
+            current_time = time.time()
+            if current_time - self._last_passive_log >= 3.0 and self.stamina < 30:
+                print(
+                    f"CPU {self.player_id}: Recuperación pasiva (+{passive_recovery_rate}/s): {old_stamina:.1f} → {self.stamina:.1f}")
+                self._last_passive_log = current_time
 
     def _clean_expired_orders(self):
         """Limpia órdenes expiradas del inventario."""
@@ -440,35 +479,96 @@ class CPUPlayer:
         """Obtiene la penalización actual del clima."""
         return self.game.weather_system.get_stamina_penalty()
 
-    def is_low_stamina(self) -> bool:
-        """Verifica si el CPU tiene baja stamina y necesita descansar."""
-        if self.difficulty == "easy":
-            threshold = 25.0
-        elif self.difficulty == "medium":
-            threshold = 15.0
-        else:
-            threshold = 10.0
+    def debug_pathfinding_graph(self):
+        """
+        DEBUG: Verifica que el grafo esté correctamente construido.
+        """
+        if not self.graph:
+            print(f"⚠️ CPU {self.player_id}: Grafo no inicializado")
+            return
 
-        return self.stamina < threshold
+        walkable_count = len(self.graph.adjacency_list)
+        building_count = 0
+
+        for y in range(self.game.city_height):
+            for x in range(self.game.city_width):
+                pos = Position(x, y)
+                if not self.graph.is_walkable(pos):
+                    building_count += 1
+
+        print(
+            f"✓ CPU {self.player_id}: Grafo construido - {walkable_count} posiciones transitables, {building_count} edificios/bloqueados")
+
+        # Verificar que la posición actual está en el grafo
+        if self.pos in self.graph.adjacency_list:
+            neighbors = self.graph.get_neighbors(self.pos)
+            print(
+                f"✓ CPU {self.player_id}: Posición actual ({self.pos.x}, {self.pos.y}) tiene {len(neighbors)} vecinos")
+        else:
+            print(f"⚠️ CPU {self.player_id}: Posición actual ({self.pos.x}, {self.pos.y}) NO está en el grafo!")
+
+    def is_low_stamina(self) -> bool:
+        """
+        Verifica si la stamina está críticamente baja.
+        AJUSTADO: Umbral más bajo (15%) para ser más agresivo con el trabajo.
+        """
+        return self.stamina < 15.0  # 15% de 100
 
     def find_nearest_park(self) -> Optional[Position]:
-        """Encuentra el parque más cercano al CPU."""
+        """
+        Encuentra el parque más cercano.
+        MEJORADO: Busca diferentes nombres/tipos de parques y es más flexible.
+        """
         if not self.game.tiles or not self.game.legend:
+            print(f"CPU {self.player_id}: ⚠️ No hay tiles o legend disponibles")
             return None
 
         nearest_park = None
         min_distance = float('inf')
+        parks_found = 0
 
-        for y in range(len(self.game.tiles)):
-            for x in range(len(self.game.tiles[y])):
+        for y in range(self.game.city_height):
+            for x in range(self.game.city_width):
+                if y >= len(self.game.tiles) or x >= len(self.game.tiles[y]):
+                    continue
+
                 tile_char = self.game.tiles[y][x]
                 tile_info = self.game.legend.get(tile_char, {})
 
-                if tile_info.get('tipo') == 'park':
+                # Buscar por tipo 'park' o nombre que contenga 'parque'
+                tile_type = tile_info.get('tipo', '').lower()
+                tile_name = tile_info.get('name', '').lower()
+
+                is_park = (tile_type == 'park' or
+                           'park' in tile_type or
+                           'parque' in tile_name or
+                           'parque' in tile_type)
+
+                if is_park:
+                    park_pos = Position(x, y)
+                    parks_found += 1
+
+                    # Verificar que la posición del parque es transitable
+                    if not self._is_valid_move(park_pos):
+                        print(f"CPU {self.player_id}: Parque encontrado en ({x}, {y}) pero NO es transitable")
+                        continue
+
                     distance = abs(self.pos.x - x) + abs(self.pos.y - y)
+
                     if distance < min_distance:
                         min_distance = distance
-                        nearest_park = Position(x, y)
+                        nearest_park = park_pos
+
+        print(f"CPU {self.player_id}: Parques encontrados en mapa: {parks_found}")
+
+        if nearest_park:
+            print(
+                f"CPU {self.player_id}: ✅ Parque más cercano en ({nearest_park.x}, {nearest_park.y}), distancia: {min_distance}")
+        else:
+            if parks_found > 0:
+                print(f"CPU {self.player_id}: ⚠️ Se encontraron {parks_found} parques pero ninguno es transitable")
+            else:
+                print(f"CPU {self.player_id}: ⚠️ NO hay parques en el mapa")
 
         return nearest_park
 

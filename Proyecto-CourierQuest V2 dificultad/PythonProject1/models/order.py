@@ -1,8 +1,7 @@
 # models/order.py
 from dataclasses import dataclass
 
-
-@dataclass
+@dataclass(frozen=True)
 class Position:
     x: int
     y: int

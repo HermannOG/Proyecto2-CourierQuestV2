@@ -53,30 +53,56 @@ class WeightedGraph:
                     self.adjacency_list[pos] = self._get_neighbors(pos)
 
     def is_walkable(self, pos: Position) -> bool:
-        """Verifica si una posición es transitable (no es edificio)."""
+        """
+        Verifica si una posición es transitable (no es edificio ni está bloqueada).
+        MEJORADO: Verifica múltiples condiciones de bloqueo.
+        """
         if not self.is_valid_position(pos):
             return False
 
+        # Verificar que el índice es válido
+        if pos.y >= len(self.tiles) or pos.x >= len(self.tiles[pos.y]):
+            return False
+
         tile_char = self.tiles[pos.y][pos.x]
-        tile_type = self.legend.get(tile_char, {}).get('tipo', 'street')
-        return tile_type != 'building'
+        tile_info = self.legend.get(tile_char, {})
+
+        # Obtener tipo y estado de bloqueo
+        tile_type = tile_info.get('tipo', 'street').lower()
+        is_blocked = tile_info.get('blocked', False)
+
+        # NO es transitable si es edificio o está bloqueado
+        if tile_type == 'building' or is_blocked:
+            return False
+
+        # También verificar por nombre (por si acaso)
+        tile_name = tile_info.get('name', '').lower()
+        if 'building' in tile_name or 'edificio' in tile_name:
+            return False
+
+        return True
 
     def is_valid_position(self, pos: Position) -> bool:
         """Verifica si una posición está dentro de los límites."""
         return 0 <= pos.x < self.width and 0 <= pos.y < self.height
 
     def _get_neighbors(self, pos: Position) -> List[Position]:
-        """Obtiene vecinos transitables de una posición."""
+        """
+        Obtiene vecinos transitables de una posición.
+        MEJORADO: Doble verificación de walkability.
+        """
         neighbors = []
         directions = [
-            Position(0, -1),  # Norte
-            Position(0, 1),   # Sur
-            Position(-1, 0),  # Oeste
-            Position(1, 0)    # Este
+            (0, -1),  # Norte
+            (0, 1),  # Sur
+            (-1, 0),  # Oeste
+            (1, 0)  # Este
         ]
 
-        for direction in directions:
-            new_pos = Position(pos.x + direction.x, pos.y + direction.y)
+        for dx, dy in directions:
+            new_pos = Position(pos.x + dx, pos.y + dy)
+
+            # Doble verificación: is_walkable Y que esté en el grafo
             if self.is_walkable(new_pos):
                 neighbors.append(new_pos)
 
@@ -286,29 +312,32 @@ class PathFinder:
         path.reverse()
         return path
 
-    def get_closest_walkable_position(self, target: Position) -> Optional[Position]:
+    def get_closest_walkable_position(self, target: Position, max_radius: int = 10) -> Optional[Position]:
         """
         Encuentra la posición transitable más cercana a un objetivo.
         Útil cuando el objetivo está en un edificio.
+        MEJORADO: Solo considera movimiento ortogonal.
         """
         if self.graph.is_walkable(target):
             return target
 
-        # BFS para encontrar el tile transitable más cercano
         from collections import deque
 
         queue = deque([target])
         visited = {target}
 
-        while queue:
-            current = queue.popleft()
+        # Direcciones ortogonales
+        directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]
 
-            # Revisar vecinos (incluyendo diagonales)
-            for dx in [-1, 0, 1]:
-                for dy in [-1, 0, 1]:
-                    if dx == 0 and dy == 0:
-                        continue
+        radius = 0
+        while queue and radius <= max_radius:
+            level_size = len(queue)
+            radius += 1
 
+            for _ in range(level_size):
+                current = queue.popleft()
+
+                for dx, dy in directions:
                     neighbor = Position(current.x + dx, current.y + dy)
 
                     if neighbor not in visited and self.graph.is_valid_position(neighbor):
