@@ -2,6 +2,8 @@
 
 """Courier Quest """
 from game import CourierQuest
+import sys
+import os
 
 
 def main():
