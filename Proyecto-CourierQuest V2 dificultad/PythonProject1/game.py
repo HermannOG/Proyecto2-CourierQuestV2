@@ -60,6 +60,7 @@ class CourierQuest:
         self._load_player_status_images()
 
         self.player_direction = "west"
+        #self.direction = "west"
 
         # Sistemas del juego
         self.api_manager = TigerAPIManager()
@@ -147,6 +148,7 @@ class CourierQuest:
         self._load_tile_images()
         self._load_weather_images()
         self._load_player_image()
+        self._load_cpu_images()
 
         self._ensure_data_files()
         print(" Courier Quest inicializado - VERSIÓN CON IMÁGENES COMPLETAS + JUGADOR")
@@ -209,6 +211,51 @@ class CourierQuest:
             print(f" Error cargando imágenes del repartidor: {e}")
             self.player_images = None
             self._create_fallback_player_image()
+
+    def _load_cpu_images(self):
+        """Carga las imágenes del CPU en las 4 direcciones."""
+        try:
+            # Diccionario para almacenar imágenes por dirección
+            self.cpu_images = {}
+            cpu_size = TILE_SIZE - 4
+
+            # Cargar imagen para cada dirección
+            directions = {
+                'west': 'assets/ERepartidor.png',  # Oeste (original)
+                'east': 'assets/ERepartidorE.png',  # Este
+                'south': 'assets/ERepartidorS.png',  # Sur
+                'north': 'assets/ERepartidorN.png'  # Norte
+            }
+
+            loaded_count = 0
+            for direction, filename in directions.items():
+                try:
+                    image = pygame.image.load(filename)
+                    self.cpu_images[direction] = pygame.transform.scale(image, (cpu_size, cpu_size))
+                    loaded_count += 1
+                    print(f"✓ Imagen del CPU ({direction}) cargada: {filename}")
+                except FileNotFoundError:
+                    print(f"✗ No se encontró {filename}")
+                    self.cpu_images[direction] = None
+
+            # Verificar si se cargó al menos una imagen
+            if loaded_count > 0:
+                # Usar la primera imagen disponible como imagen actual
+                for direction in ['west', 'east', 'north', 'south']:
+                    if self.cpu_images[direction] is not None:
+                        self.cpu_image = self.cpu_images[direction]
+                        self.cpu_direction = direction
+                        break
+                print(f"✓ {loaded_count}/4 imágenes direccionales del CPU cargadas")
+            else:
+                print("✗ No se pudo cargar ninguna imagen del CPU")
+                self.cpu_images = None
+                self._create_fallback_cpu_image()
+
+        except Exception as e:
+            print(f"✗ Error cargando imágenes del CPU: {e}")
+            self.cpu_images = None
+            self._create_fallback_cpu_image()
 
     def _load_player_status_images(self):
         """Carga las imágenes del jugador según la cantidad de paquetes (0-4)."""
@@ -276,6 +323,22 @@ class CourierQuest:
 
         self.dropoff_image = fallback_surface
         print(" Imagen de respaldo para dropoff creada")
+
+    def _create_fallback_cpu_image(self):
+        """Crea imágenes de respaldo para el CPU si no se encuentran las originales."""
+        cpu_size = TILE_SIZE - 4
+        self.cpu_images = {}
+
+        # Crear un rectángulo azul como imagen de respaldo
+        for direction in ['west', 'east', 'north', 'south']:
+            fallback_surface = pygame.Surface((cpu_size, cpu_size), pygame.SRCALPHA)
+            fallback_surface.fill((50, 150, 255))  # Azul para distinguir del jugador
+            pygame.draw.rect(fallback_surface, (0, 200, 255), fallback_surface.get_rect(), 3)
+            self.cpu_images[direction] = fallback_surface
+
+        self.cpu_image = self.cpu_images['west']
+        self.cpu_direction = 'west'
+        print("✓ Imágenes de respaldo del CPU creadas")
 
     def _create_fallback_player_image(self):
         """Crea imágenes de respaldo para el jugador en 4 direcciones."""
@@ -467,6 +530,22 @@ class CourierQuest:
 
         self.package_image = fallback_surface
         print(" Imagen de respaldo para paquete creada")
+
+    def _create_fallback_cpu_image(self):
+        """Crea imágenes de respaldo para el CPU si no se encuentran las originales."""
+        cpu_size = TILE_SIZE - 4
+        self.cpu_images = {}
+
+        # Crear un rectángulo azul como imagen de respaldo
+        for direction in ['west', 'east', 'north', 'south']:
+            fallback_surface = pygame.Surface((cpu_size, cpu_size), pygame.SRCALPHA)
+            fallback_surface.fill((50, 150, 255))  # Azul para distinguir del jugador
+            pygame.draw.rect(fallback_surface, (0, 200, 255), fallback_surface.get_rect(), 3)
+            self.cpu_images[direction] = fallback_surface
+
+        self.cpu_image = self.cpu_images['west']
+        self.cpu_direction = 'west'
+        print("✓ Imágenes de respaldo del CPU creadas")
 
     def _load_tile_images(self):
         """Carga las imágenes para todos los tipos de tiles."""
@@ -1935,6 +2014,59 @@ class CourierQuest:
         if self.game_over:
             self.draw_game_over_overlay()
 
+    def draw_cpu_player(self):
+        """Dibuja al CPU Player en el mapa usando imágenes direccionales."""
+        if not self.cpu_enabled or not self.cpu_player:
+            return
+
+        cpu_pos = self.cpu_player.pos
+        screen_x = cpu_pos.x * TILE_SIZE + self.map_offset_x + 2
+        screen_y = cpu_pos.y * TILE_SIZE + self.map_offset_y + 2
+
+        # Obtener la imagen según la dirección actual del CPU
+        current_image = None
+        if hasattr(self, 'cpu_images') and self.cpu_images is not None:
+            cpu_direction = getattr(self.cpu_player, 'direction', 'west')
+            current_image = self.cpu_images.get(cpu_direction)
+
+        # Si no hay imagen, usar la imagen de respaldo o crear una
+        if current_image is None:
+            if hasattr(self, 'cpu_image'):
+                current_image = self.cpu_image
+            else:
+                # Crear imagen de respaldo temporal
+                cpu_size = TILE_SIZE - 4
+                current_image = pygame.Surface((cpu_size, cpu_size), pygame.SRCALPHA)
+
+                # Colores según stamina
+                if self.cpu_player.stamina > 30:
+                    border_color = (0, 200, 255)  # Cyan
+                    fill_color = (50, 150, 255)  # Azul claro
+                elif self.cpu_player.stamina > 0:
+                    border_color = (255, 200, 0)  # Amarillo
+                    fill_color = (255, 180, 50)
+                else:
+                    border_color = (255, 0, 0)  # Rojo
+                    fill_color = (200, 50, 50)
+
+                current_image.fill(fill_color)
+                pygame.draw.rect(current_image, border_color, current_image.get_rect(), 3)
+
+        # Dibujar la imagen del CPU
+        self.screen.blit(current_image, (screen_x, screen_y))
+
+        # Etiqueta "CPU" sobre la imagen
+        cpu_label = self.small_font.render("CPU", True, (255, 255, 255))
+        label_rect = cpu_label.get_rect(
+            center=(screen_x + (TILE_SIZE - 4) // 2, screen_y + (TILE_SIZE - 4) // 2)
+        )
+        self.screen.blit(cpu_label, label_rect)
+
+        # Indicador de exhausto (barra roja arriba)
+        if self.cpu_player.stamina <= 0:
+            alert_rect = pygame.Rect(screen_x - 2, screen_y - 8, TILE_SIZE, 4)
+            pygame.draw.rect(self.screen, (255, 50, 50), alert_rect)
+
     def draw_weather_background(self):
         weather_color = self.weather_system.get_weather_color()
         alpha = int(25 * self.weather_system.current_intensity)
@@ -2177,43 +2309,6 @@ class CourierQuest:
 
                     self.screen.blit(status_text, status_rect)
 
-    def draw_cpu_player(self):
-        """Dibuja el CPU Player en el mapa."""
-        if not self.cpu_enabled or not self.cpu_player:
-            return
-
-        cpu_pos = self.cpu_player.pos
-        screen_x = cpu_pos.x * TILE_SIZE + self.map_offset_x + 2
-        screen_y = cpu_pos.y * TILE_SIZE + self.map_offset_y + 2
-
-        # Usar colores diferentes para el CPU (azul/cyan)
-        if self.cpu_player.stamina > 30:
-            border_color = (0, 200, 255)  # Cyan
-            fill_color = (50, 150, 255)   # Azul claro
-        elif self.cpu_player.stamina > 0:
-            border_color = (255, 200, 0)  # Amarillo
-            fill_color = (255, 180, 50)
-        else:
-            border_color = (255, 0, 0)    # Rojo
-            fill_color = (200, 50, 50)
-
-        # Dibujar rectángulo para distinguirlo del jugador humano (círculo)
-        player_rect = pygame.Rect(
-            screen_x, screen_y,
-            TILE_SIZE - 4, TILE_SIZE - 4
-        )
-        pygame.draw.rect(self.screen, fill_color, player_rect)
-        pygame.draw.rect(self.screen, border_color, player_rect, 3)
-
-        # Etiqueta "CPU"
-        cpu_label = self.small_font.render("CPU", True, WHITE)
-        label_rect = cpu_label.get_rect(center=(screen_x + (TILE_SIZE - 4) // 2, screen_y + (TILE_SIZE - 4) // 2))
-        self.screen.blit(cpu_label, label_rect)
-
-        # Indicador de exhausto
-        if self.cpu_player.stamina <= 0:
-            alert_rect = pygame.Rect(screen_x - 2, screen_y - 8, TILE_SIZE, 4)
-            pygame.draw.rect(self.screen, BRIGHT_RED, alert_rect)
 
     def draw_order_marker(self, order, position, label, is_dropoff=False, in_inventory=False):
         """Dibuja un marcador individual de pedido usando imágenes de paquete y dropoff."""

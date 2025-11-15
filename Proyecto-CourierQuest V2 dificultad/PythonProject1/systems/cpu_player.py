@@ -47,6 +47,7 @@ class CPUPlayer:
         self.current_target = None
         self.current_order = None
         self.current_path = []
+        self.direction = "west"
         self.action_state = "idle"
 
         # Estados del jugador
@@ -202,46 +203,68 @@ class CPUPlayer:
         """Método principal de toma de decisiones."""
         raise NotImplementedError("Subclasses must implement make_decision()")
 
-    def execute_move(self, target_pos: Position, dt: float) -> bool:
+    def execute_move(self, new_pos: Position, dt: float) -> bool:
         """
-        Ejecuta un movimiento hacia una posición objetivo.
-        MEJORADO: Se detiene completamente si no hay suficiente stamina.
+        Ejecuta un movimiento del CPU hacia una nueva posición.
+        ACTUALIZADO: Ahora actualiza la dirección visual del CPU.
+
+        Args:
+            new_pos: Nueva posición a la que moverse
+            dt: Delta time (tiempo transcurrido)
+
+        Returns:
+            True si el movimiento fue exitoso, False en caso contrario
         """
-        if self.time_since_last_move < self.move_cooldown:
+        import time
+
+        current_time = time.time()
+
+        # Control de cooldown de movimiento
+        if current_time - self.last_move_time < self.move_cooldown:
             return False
 
-        # CRÍTICO: No moverse si está exhausto
-        if self.is_exhausted:
+        # Verificar si la posición es válida
+        if not self._is_valid_move(new_pos):
             return False
 
-        if not self._is_valid_move(target_pos):
+        # Verificar que el movimiento es adyacente (solo una casilla)
+        distance = abs(new_pos.x - self.pos.x) + abs(new_pos.y - self.pos.y)
+        if distance != 1:
             return False
 
-        # NUEVO: Calcular el costo ANTES de moverse y verificar si hay suficiente stamina
-        stamina_cost = self._calculate_stamina_cost(target_pos)
+        # CALCULAR LA DIRECCIÓN DEL MOVIMIENTO
+        dx = new_pos.x - self.pos.x
+        dy = new_pos.y - self.pos.y
 
-        # Si no hay suficiente stamina para el movimiento, NO moverse
+        # Actualizar la dirección visual
+        if dx > 0:
+            self.direction = 'east'
+        elif dx < 0:
+            self.direction = 'west'
+        elif dy > 0:
+            self.direction = 'south'
+        elif dy < 0:
+            self.direction = 'north'
+
+        # Calcular consumo de stamina
+        weather_penalty = self.game.weather_system.get_stamina_penalty()
+        stamina_cost = 1.0 * weather_penalty
+
+        # Verificar si tiene suficiente stamina
         if self.stamina < stamina_cost:
-            print(f"CPU {self.player_id}: Stamina insuficiente para moverse ({self.stamina:.1f} < {stamina_cost:.1f})")
+            self.is_exhausted = True
             return False
 
-        self._update_direction(target_pos)
-
-        old_pos = self.pos
-        self.pos = target_pos
-
-        # Restar stamina DESPUÉS de validar que hay suficiente
+        # Ejecutar el movimiento
+        self.pos = new_pos
         self.stamina -= stamina_cost
-
         self.total_distance_traveled += 1
-
-        self.last_move_time = time.time()
-        self.time_since_last_move = 0
+        self.last_move_time = current_time
 
         # Verificar si quedó exhausto después del movimiento
         if self.stamina <= 0:
             self.is_exhausted = True
-            print(f"CPU {self.player_id}: ¡EXHAUSTO! ({self.stamina:.1f}/{self.exhaustion_recovery_threshold})")
+            self.stamina = 0
 
         return True
 
