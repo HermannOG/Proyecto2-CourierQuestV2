@@ -325,7 +325,7 @@ class HardAI(CPUPlayer):
     def make_decision(self, dt: float):
         """
         Toma de decisiones con A* y replanificación.
-        VERSIÓN CORREGIDA: Calcula ruta al dropoff después de recoger paquete.
+        INCLUYE: Recolección oportunista de paquetes cercanos durante entregas.
         """
         self.replan_timer += dt
 
@@ -387,6 +387,10 @@ class HardAI(CPUPlayer):
                 self.current_target = None
                 return
 
+        # ===== MANEJO DE ESTADO OPORTUNISTA =====
+        if self._handle_opportunistic_state():
+            return
+
         # ===== FLUJO NORMAL DE TRABAJO =====
 
         # PRIMERO: Intentar entregar si tiene paquetes
@@ -397,9 +401,20 @@ class HardAI(CPUPlayer):
                     if delivered:
                         self.current_path = []
                         self.path_index = 0
-                        self.current_order = None  # Limpiar orden actual
+                        self.current_order = None
+
+                        # Después de entregar, si todavía tiene paquetes, ir al siguiente
+                        if self.inventory:
+                            next_dropoff = self.inventory[0].dropoff
+                            print(f"CPU {self.player_id}: Siguiente entrega en ({next_dropoff.x}, {next_dropoff.y})")
+                            self._calculate_optimal_path(next_dropoff)
                         return
                 else:
+                    # ===== RECOLECCIÓN OPORTUNISTA =====
+                    # Antes de moverse, verificar si hay paquetes cercanos
+                    if self._check_opportunistic_pickup():
+                        return  # Si recogió o está recogiendo algo, salir
+
                     # Ir a la entrega - asegurarse de tener ruta
                     if not self.current_target or \
                             self.current_target.x != order.dropoff.x or \
@@ -415,9 +430,9 @@ class HardAI(CPUPlayer):
             if self.pos.x == self.current_order.pickup.x and self.pos.y == self.current_order.pickup.y:
                 picked_up = self.interact_at_position()
                 if picked_up:
-                    # CRÍTICO: Después de recoger, calcular ruta al dropoff INMEDIATAMENTE
+
                     print(f"CPU {self.player_id}: Paquete recogido, calculando ruta a dropoff")
-                    if self.inventory:  # Verificar que realmente se agregó al inventario
+                    if self.inventory:
                         dropoff = self.inventory[0].dropoff
                         self._calculate_optimal_path(dropoff)
                     return
@@ -455,6 +470,11 @@ class HardAI(CPUPlayer):
                         self.current_path = []
                         self.path_index = 0
                         self.current_order = None
+
+                        # Si todavía tiene paquetes, entregar el siguiente
+                        if self.inventory:
+                            next_dropoff = self.inventory[0].dropoff
+                            self._calculate_optimal_path(next_dropoff)
                         return
                 else:
                     self._calculate_optimal_path(self.inventory[0].dropoff)
@@ -1060,6 +1080,127 @@ class HardAI(CPUPlayer):
         REDIRIGE al método seguro mejorado.
         """
         self._greedy_move_towards_safe(target)
+
+    def _check_opportunistic_pickup(self) -> bool:
+        """
+        Verifica si hay paquetes disponibles en un rango de 1 casilla que puede recoger.
+        Si los hay y tiene capacidad, los recoge oportunistamente.
+
+        Returns:
+            True si recogió un paquete, False si no
+        """
+        # Solo buscar oportunidades si tiene inventario (está en proceso de entrega)
+        if not self.inventory:
+            return False
+
+        # Verificar capacidad disponible
+        current_weight = self.get_current_weight()
+        if current_weight >= self.max_weight:
+            return False
+
+        # Buscar paquetes disponibles en rango de 1 casilla
+        available_orders = self.get_available_orders()
+
+        for order in available_orders:
+            # Calcular distancia al pickup
+            distance = abs(self.pos.x - order.pickup.x) + abs(self.pos.y - order.pickup.y)
+
+            # Si está a 1 casilla o menos y tiene capacidad
+            if distance <= 1 and self.has_capacity_for(order):
+                # Verificar si vale la pena (score básico)
+                score = self._calculate_order_score(order)
+
+                # Solo recoger si tiene un score razonable (evitar paquetes muy malos)
+                if score > 0:
+                    print(f"CPU {self.player_id}: 🎯 ¡Oportunidad! Paquete {order.id} a {distance} casilla(s)")
+
+                    # Si está exactamente en el pickup, recoger inmediatamente
+                    if distance == 0:
+                        # Guardar el estado actual
+                        previous_order = self.current_order
+                        previous_target = self.current_target
+
+                        # Temporalmente hacer esta orden la actual para poder recogerla
+                        self.current_order = order
+                        picked_up = self.interact_at_position()
+
+                        if picked_up:
+                            print(f"CPU {self.player_id}: ✅ Recogió paquete oportunista {order.id}")
+                            # Restaurar la orden anterior como objetivo principal
+                            self.current_order = previous_order
+                            self.current_target = previous_target
+                            return True
+                        else:
+                            # Si falló, restaurar
+                            self.current_order = previous_order
+                            self.current_target = previous_target
+                            return False
+
+                    # Si está a 1 casilla, hacer un desvío rápido
+                    elif distance == 1:
+                        print(f"CPU {self.player_id}: 📦 Haciendo desvío de 1 casilla para recoger {order.id}")
+
+                        # Guardar destino actual
+                        if not hasattr(self, '_saved_delivery_target'):
+                            self._saved_delivery_target = None
+
+                        # Si está entregando, guardar el destino de entrega
+                        if self.inventory and len(self.inventory) > 0:
+                            self._saved_delivery_target = self.inventory[0].dropoff
+
+                        # Ir a recoger el paquete oportunista
+                        self.current_order = order
+                        self._calculate_optimal_path(order.pickup)
+                        self.action_state = "opportunistic_pickup"
+                        return True
+
+        return False
+
+    def _handle_opportunistic_state(self) -> bool:
+        """
+        Maneja el estado especial de recolección oportunista.
+
+        Returns:
+            True si está en modo oportunista y debe continuar, False si terminó
+        """
+        if not hasattr(self, 'action_state') or self.action_state != "opportunistic_pickup":
+            return False
+
+        # Si llegó al pickup oportunista
+        if self.current_order and \
+                self.pos.x == self.current_order.pickup.x and \
+                self.pos.y == self.current_order.pickup.y:
+
+            picked_up = self.interact_at_position()
+
+            if picked_up:
+                print(f"CPU {self.player_id}: Recogió paquete oportunista {self.current_order.id}")
+
+                # Restaurar el objetivo de entrega original
+                self.current_order = None
+                self.action_state = "moving_to_dropoff"
+
+                # Recalcular ruta al dropoff original
+                if hasattr(self, '_saved_delivery_target') and self._saved_delivery_target:
+                    print(f"CPU {self.player_id}: 🔄 Regresando a entrega original")
+                    self._calculate_optimal_path(self._saved_delivery_target)
+                    self._saved_delivery_target = None
+                elif self.inventory:
+                    # Ir al dropoff del primer paquete en inventario
+                    self._calculate_optimal_path(self.inventory[0].dropoff)
+
+                return True
+            else:
+                # Si falló la recolección, volver al estado normal
+                self.action_state = "moving_to_dropoff"
+                if hasattr(self, '_saved_delivery_target') and self._saved_delivery_target:
+                    self._calculate_optimal_path(self._saved_delivery_target)
+                    self._saved_delivery_target = None
+                return True
+        else:
+            # Seguir el camino al pickup oportunista
+            self._follow_current_path()
+            return True
 
 
 

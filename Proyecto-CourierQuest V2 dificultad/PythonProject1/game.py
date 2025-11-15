@@ -2250,14 +2250,16 @@ class CourierQuest:
                     self.screen.blit(status_text, status_rect)
 
     def _load_cpu_status_images(self):
-        """Carga las imágenes del CPU según la cantidad de paquetes (0-2)."""
+        """Carga las imágenes del CPU según la cantidad de paquetes (0-4)."""
         try:
             self.cpu_status_images = {}
 
             load_levels = {
                 0: 'assets/ERepartidorIzq.png',  # Sin paquetes
                 1: 'assets/ECarga1.png',  # 1 paquete
-                2: 'assets/ECarga2.png'  # 2 paquetes
+                2: 'assets/ECarga2.png',  # 2 paquetes
+                3: 'assets/ECarga3.png',  # 3 paquetes
+                4: 'assets/ECarga4.png'  # 4+ paquetes
             }
 
             loaded_count = 0
@@ -2266,26 +2268,26 @@ class CourierQuest:
                     image = pygame.image.load(filename)
                     self.cpu_status_images[level] = image
                     loaded_count += 1
-                    print(f"✓ Imagen de carga CPU nivel {level} cargada: {filename}")
+                    print(f" Imagen de carga CPU nivel {level} cargada: {filename}")
                 except FileNotFoundError:
-                    print(f"✗ No se encontró {filename}")
+                    print(f" No se encontró {filename}")
                     self.cpu_status_images[level] = None
 
             if loaded_count > 0:
-                print(f"✓ {loaded_count}/3 imágenes de estado del CPU cargadas")
+                print(f" {loaded_count}/5 imágenes de estado del CPU cargadas")
             else:
-                print("✗ No se pudo cargar ninguna imagen de estado del CPU")
+                print(" No se pudo cargar ninguna imagen de estado del CPU")
                 self._create_fallback_cpu_status_images()
 
         except Exception as e:
-            print(f"✗ Error cargando imágenes de estado CPU: {e}")
+            print(f" Error cargando imágenes de estado CPU: {e}")
             self._create_fallback_cpu_status_images()
 
     def _create_fallback_cpu_status_images(self):
         """Crea imágenes de respaldo para el estado del CPU."""
         self.cpu_status_images = {}
 
-        for level in range(3):  # 0, 1, 2
+        for level in range(5):  # 0, 1, 2, 3, 4
             cpu_size = 150
             fallback_surface = pygame.Surface((cpu_size, cpu_size), pygame.SRCALPHA)
 
@@ -2293,9 +2295,13 @@ class CourierQuest:
             if level == 0:
                 base_color = (50, 150, 255)  # Azul
             elif level == 1:
-                base_color = (80, 180, 255)  # Azul más claro
-            else:
-                base_color = (110, 210, 255)  # Azul aún más claro
+                base_color = (70, 170, 255)  # Azul más claro
+            elif level == 2:
+                base_color = (90, 190, 255)  # Azul aún más claro
+            elif level == 3:
+                base_color = (110, 210, 255)  # Azul muy claro
+            else:  # level == 4
+                base_color = (130, 230, 255)  # Azul casi blanco
 
             # Dibujar repartidor
             pygame.draw.circle(fallback_surface, base_color, (cpu_size // 2, cpu_size // 3), 30)
@@ -2311,12 +2317,12 @@ class CourierQuest:
 
             self.cpu_status_images[level] = fallback_surface
 
-        print("✓ Imágenes de respaldo para estado del CPU creadas")
+        print(" Imágenes de respaldo para estado del CPU creadas")
 
     def _get_cpu_load_level(self) -> int:
         """
         Determina el nivel de carga del CPU según paquetes en inventario.
-        Retorna: 0 (sin paquetes), 1 (1 paquete), 2 (2+ paquetes)
+        Retorna: 0 (sin paquetes), 1 (1 paquete), 2 (2 paquetes), 3 (3 paquetes), 4 (4+ paquetes)
         """
         if not self.cpu_player:
             return 0
@@ -2327,8 +2333,12 @@ class CourierQuest:
             return 0
         elif package_count == 1:
             return 1
-        else:  # 2 o más
+        elif package_count == 2:
             return 2
+        elif package_count == 3:
+            return 3
+        else:  # 4 o más
+            return 4
 
     def draw_cpu_status(self, x: int, y: int, width: int):
         """
@@ -3399,5 +3409,6 @@ class CourierQuest:
             self.draw()
 
         pygame.quit()
+
 
 
