@@ -206,7 +206,7 @@ class CPUPlayer:
     def execute_move(self, new_pos: Position, dt: float) -> bool:
         """
         Ejecuta un movimiento del CPU hacia una nueva posición.
-        ACTUALIZADO: Ahora actualiza la dirección visual del CPU.
+        ACTUALIZADO: Ahora actualiza la dirección visual del CPU y consume stamina correctamente.
 
         Args:
             new_pos: Nueva posición a la que moverse
@@ -246,9 +246,8 @@ class CPUPlayer:
         elif dy < 0:
             self.direction = 'north'
 
-        # Calcular consumo de stamina
-        weather_penalty = self.game.weather_system.get_stamina_penalty()
-        stamina_cost = 1.0 * weather_penalty
+        # CORRECCIÓN: Usar el método que calcula correctamente el costo de stamina
+        stamina_cost = self._calculate_stamina_cost(new_pos)
 
         # Verificar si tiene suficiente stamina
         if self.stamina < stamina_cost:
@@ -395,18 +394,28 @@ class CPUPlayer:
             self.direction = "south" if dy > 0 else "north"
 
     def _calculate_stamina_cost(self, pos: Position) -> float:
-        """Calcula el costo de stamina para moverse a una posición."""
+        """
+        Calcula el costo de stamina para moverse a una posición.
+        CORREGIDO: Ahora usa la MISMA fórmula que el jugador.
+        """
+        # Costo base de movimiento
         base_cost = 2.0
 
+        # Penalización por clima (como multiplicador, no suma)
         weather_penalty = self.game.weather_system.get_stamina_penalty()
-        base_cost += weather_penalty
 
+        # Penalización por peso (calculada igual que el jugador)
         current_weight = sum(o.weight for o in self.inventory)
-        weight_ratio = current_weight / self.max_weight
-        weight_penalty = weight_ratio * 0.5
-        base_cost += weight_penalty
+        weight_penalty = 0.0
+        if current_weight > self.max_weight * 0.7:
+            weight_penalty = 0.5
+        elif current_weight > self.max_weight * 0.5:
+            weight_penalty = 0.2
 
-        return base_cost
+        # FÓRMULA EXACTA DEL JUGADOR
+        total_cost = base_cost * (1 + weather_penalty + weight_penalty)
+
+        return total_cost
 
     def _update_stamina_recovery(self, dt: float):
         """

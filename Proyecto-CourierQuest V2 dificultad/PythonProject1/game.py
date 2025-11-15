@@ -58,6 +58,7 @@ class CourierQuest:
         self._load_package_image()
         self._load_dropoff_image()
         self._load_player_status_images()
+        self._load_cpu_status_images()
 
         self.player_direction = "west"
         #self.direction = "west"
@@ -2327,6 +2328,270 @@ class CourierQuest:
 
                     self.screen.blit(status_text, status_rect)
 
+    def _load_cpu_status_images(self):
+        """Carga las imágenes del CPU según la cantidad de paquetes (0-2)."""
+        try:
+            self.cpu_status_images = {}
+
+            load_levels = {
+                0: 'assets/ERepartidorIzq.png',  # Sin paquetes
+                1: 'assets/ECarga1.png',  # 1 paquete
+                2: 'assets/ECarga2.png'  # 2 paquetes
+            }
+
+            loaded_count = 0
+            for level, filename in load_levels.items():
+                try:
+                    image = pygame.image.load(filename)
+                    self.cpu_status_images[level] = image
+                    loaded_count += 1
+                    print(f"✓ Imagen de carga CPU nivel {level} cargada: {filename}")
+                except FileNotFoundError:
+                    print(f"✗ No se encontró {filename}")
+                    self.cpu_status_images[level] = None
+
+            if loaded_count > 0:
+                print(f"✓ {loaded_count}/3 imágenes de estado del CPU cargadas")
+            else:
+                print("✗ No se pudo cargar ninguna imagen de estado del CPU")
+                self._create_fallback_cpu_status_images()
+
+        except Exception as e:
+            print(f"✗ Error cargando imágenes de estado CPU: {e}")
+            self._create_fallback_cpu_status_images()
+
+    def _create_fallback_cpu_status_images(self):
+        """Crea imágenes de respaldo para el estado del CPU."""
+        self.cpu_status_images = {}
+
+        for level in range(3):  # 0, 1, 2
+            cpu_size = 150
+            fallback_surface = pygame.Surface((cpu_size, cpu_size), pygame.SRCALPHA)
+
+            # Color base según nivel de carga
+            if level == 0:
+                base_color = (50, 150, 255)  # Azul
+            elif level == 1:
+                base_color = (80, 180, 255)  # Azul más claro
+            else:
+                base_color = (110, 210, 255)  # Azul aún más claro
+
+            # Dibujar repartidor
+            pygame.draw.circle(fallback_surface, base_color, (cpu_size // 2, cpu_size // 3), 30)
+            pygame.draw.rect(fallback_surface, base_color,
+                             (cpu_size // 2 - 25, cpu_size // 3, 50, 80))
+
+            # Dibujar paquetes
+            package_color = (139, 69, 19)
+            for i in range(level):
+                package_y = cpu_size // 2 + 20 + i * 15
+                pygame.draw.rect(fallback_surface, package_color,
+                                 (cpu_size // 2 - 15, package_y, 30, 12), border_radius=2)
+
+            self.cpu_status_images[level] = fallback_surface
+
+        print("✓ Imágenes de respaldo para estado del CPU creadas")
+
+    def _get_cpu_load_level(self) -> int:
+        """
+        Determina el nivel de carga del CPU según paquetes en inventario.
+        Retorna: 0 (sin paquetes), 1 (1 paquete), 2 (2+ paquetes)
+        """
+        if not self.cpu_player:
+            return 0
+
+        package_count = len(self.cpu_player.inventory)
+
+        if package_count == 0:
+            return 0
+        elif package_count == 1:
+            return 1
+        else:  # 2 o más
+            return 2
+
+    def draw_cpu_status(self, x: int, y: int, width: int):
+        """
+        Dibuja el panel de estado del CPU (similar al del jugador).
+        Muestra: imagen según carga, dinero, reputación, stamina y entregas.
+        """
+        if not self.cpu_enabled or not self.cpu_player:
+            return
+
+        # Fondo del panel - ALTURA AUMENTADA A 320 para toda la info
+        status_bg = pygame.Rect(x - 8, y - 5, width + 16, 340)
+        pygame.draw.rect(self.screen, (230, 245, 255), status_bg, border_radius=6)  # Azul muy claro
+        pygame.draw.rect(self.screen, (0, 100, 200), status_bg, 2, border_radius=6)  # Borde azul
+
+        # Título CON DIFICULTAD (mismo estilo que "ESTADO JUGADOR")
+        difficulty_upper = self.cpu_difficulty.upper()
+        title = self.header_font.render(f"CPU - {difficulty_upper}", True, (0, 80, 180))
+        self.screen.blit(title, (x + 5, y))
+
+        # ===== IMAGEN DEL CPU SEGÚN CARGA (MISMO TAMAÑO QUE JUGADOR) =====
+        cpu_image_size = 75 * 2  # 150x150 - IGUAL QUE EL JUGADOR
+        cpu_y_pos = y + 30
+
+        load_level = self._get_cpu_load_level()
+
+        try:
+            if hasattr(self, 'cpu_status_images') and load_level in self.cpu_status_images:
+                current_status_image = self.cpu_status_images[load_level]
+
+                if current_status_image is not None:
+                    scaled_cpu = pygame.transform.scale(current_status_image,
+                                                        (cpu_image_size, cpu_image_size))
+                    cpu_x_centered = x + (width - cpu_image_size) // 2
+                    self.screen.blit(scaled_cpu, (cpu_x_centered, cpu_y_pos))
+
+                    # Borde de la imagen
+                    image_rect = pygame.Rect(cpu_x_centered, cpu_y_pos,
+                                             cpu_image_size, cpu_image_size)
+                    pygame.draw.rect(self.screen, (0, 100, 200), image_rect, 2, border_radius=5)
+                else:
+                    self._draw_fallback_cpu_status(x, cpu_y_pos, cpu_image_size, load_level)
+            else:
+                self._draw_fallback_cpu_status(x, cpu_y_pos, cpu_image_size, load_level)
+        except Exception as e:
+            print(f"✗ Error mostrando imagen de estado CPU: {e}")
+            self._draw_fallback_cpu_status(x, cpu_y_pos, cpu_image_size, load_level)
+
+        # ===== BARRA DE STAMINA (IGUAL QUE EL JUGADOR) =====
+        bar_y = cpu_y_pos + cpu_image_size + 8
+        bar_width = width - 20
+        bar_height = 18
+
+        # Label "RESISTENCIA:" (mismo que el jugador)
+        label = self.font.render("RESISTENCIA:", True, UI_TEXT_NORMAL)
+        self.screen.blit(label, (x + 5, bar_y))
+
+        # Barra de stamina
+        bar_bg = pygame.Rect(x + 10, bar_y + 18, bar_width - 10, bar_height)
+        pygame.draw.rect(self.screen, DARK_GRAY, bar_bg, border_radius=3)
+
+        stamina_progress = self.cpu_player.stamina / self.cpu_player.max_stamina
+        fill_width = max(3, int((bar_width - 10) * stamina_progress))
+
+        # Colores según stamina (usando colores cyan para distinguir del jugador)
+        if self.cpu_player.stamina > 30:
+            fill_color = (0, 200, 255)  # Cyan (distinguir del verde del jugador)
+        elif self.cpu_player.stamina > 0:
+            fill_color = (255, 165, 0)  # Naranja (distinguir del amarillo del jugador)
+        else:
+            fill_color = UI_CRITICAL  # Rojo
+
+        if fill_width > 0:
+            fill_rect = pygame.Rect(x + 12, bar_y + 20, fill_width - 4, bar_height - 4)
+            pygame.draw.rect(self.screen, fill_color, fill_rect, border_radius=2)
+
+        # Línea de umbral en 30
+        threshold_x = x + 10 + int((30 / self.cpu_player.max_stamina) * (bar_width - 10))
+        pygame.draw.line(self.screen, (255, 100, 100),
+                         (threshold_x, bar_y + 18),
+                         (threshold_x, bar_y + 18 + bar_height), 2)
+
+        pygame.draw.rect(self.screen, UI_BORDER, bar_bg, 2, border_radius=3)
+
+        # Texto de stamina (mismo estilo que jugador)
+        stamina_text = f"{self.cpu_player.stamina:.0f}/{self.cpu_player.max_stamina}"
+        text_surface = self.small_font.render(stamina_text, True, BLACK)
+        text_rect = text_surface.get_rect(center=(x + bar_width // 2, bar_y + 27))
+        self.screen.blit(text_surface, text_rect)
+
+        # ===== ESTADO (NORMAL/CANSADO/EXHAUSTO) =====
+        status_y = bar_y + 40
+
+        if self.cpu_player.is_exhausted:
+            status_text = f"EXHAUSTO - BLOQUEADO ({self.cpu_player.stamina:.0f}/{self.cpu_player.exhaustion_recovery_threshold})"
+            status_color = BRIGHT_RED
+
+            if int(time.time() * 2) % 2 == 0:
+                alert_rect = pygame.Rect(x + 5, status_y - 5, width - 20, 25)
+                pygame.draw.rect(self.screen, (255, 0, 0, 100), alert_rect, border_radius=3)
+
+        elif self.cpu_player.stamina <= 30:
+            status_text = f"CANSADO ({self.cpu_player.stamina:.0f}/30 para normalidad)"
+            status_color = UI_WARNING
+
+        else:
+            status_text = "NORMAL"
+            status_color = (0, 200, 255)  # Cyan para distinguir del jugador
+
+        status_surface = self.font.render(status_text, True, status_color)
+        self.screen.blit(status_surface, (x + 5, status_y))
+
+        # Texto de ayuda si está exhausto
+        help_y = status_y + 20
+        if self.cpu_player.is_exhausted:
+            help_text = f"Espera a recuperar {self.cpu_player.exhaustion_recovery_threshold - self.cpu_player.stamina:.0f} pts más"
+            help_surface = self.small_font.render(help_text, True, UI_TEXT_SECONDARY)
+            self.screen.blit(help_surface, (x + 5, help_y))
+            info_y = help_y + 20  # Ajustar posición si está exhausto
+        else:
+            info_y = status_y + 20  # Posición normal
+
+        # ===== INFORMACIÓN ADICIONAL (DINERO, REPUTACIÓN, ENTREGAS) =====
+        # Separador visual
+        separator_y = info_y + 5
+        pygame.draw.line(self.screen, (0, 100, 200),
+                         (x + 10, separator_y),
+                         (x + width - 10, separator_y), 1)
+
+        stats_y = separator_y + 8
+
+        # Dinero (mismo estilo que en las estadísticas)
+        money_text = self.font.render(f" DINERO: ${self.cpu_player.money}", True, (0, 120, 0))
+        self.screen.blit(money_text, (x + 5, stats_y))
+
+        # Reputación (con color según valor)
+        rep_color = UI_SUCCESS if self.cpu_player.reputation >= 70 else UI_WARNING if self.cpu_player.reputation >= 40 else UI_CRITICAL
+        rep_text = self.font.render(f" REPUTACION: {self.cpu_player.reputation}", True, rep_color)
+        self.screen.blit(rep_text, (x + 5, stats_y + 20))
+
+        # Entregas completadas
+        deliveries_text = self.font.render(f" ENTREGAS: {len(self.cpu_player.completed_orders)}", True, UI_TEXT_NORMAL)
+        self.screen.blit(deliveries_text, (x + 5, stats_y + 40))
+
+    def _draw_fallback_cpu_status(self, x: int, y: int, size: int, load_level: int):
+        """Dibuja una imagen de respaldo del CPU en el panel de estado."""
+        fallback_surface = pygame.Surface((size, size), pygame.SRCALPHA)
+
+        # Color base según carga
+        if load_level == 0:
+            base_color = (50, 150, 255)
+        elif load_level == 1:
+            base_color = (80, 180, 255)
+        else:
+            base_color = (110, 210, 255)
+
+        # Círculo para la cabeza
+        head_radius = size // 6
+        pygame.draw.circle(fallback_surface, base_color, (size // 2, size // 3), head_radius)
+        pygame.draw.circle(fallback_surface, (0, 100, 200), (size // 2, size // 3), head_radius, 3)
+
+        # Rectángulo para el cuerpo
+        body_width = size // 3
+        body_height = size // 2
+        body_rect = pygame.Rect(size // 2 - body_width // 2, size // 3, body_width, body_height)
+        pygame.draw.rect(fallback_surface, base_color, body_rect, border_radius=5)
+        pygame.draw.rect(fallback_surface, (0, 100, 200), body_rect, 3, border_radius=5)
+
+        # Dibujar paquetes
+        package_color = (139, 69, 19)
+        package_size = 25
+        for i in range(load_level):
+            package_y = size // 2 + 10 + i * 30
+            package_rect = pygame.Rect(
+                size // 2 - package_size // 2,
+                package_y,
+                package_size,
+                package_size
+            )
+            pygame.draw.rect(fallback_surface, package_color, package_rect, border_radius=3)
+            pygame.draw.rect(fallback_surface, (80, 40, 10), package_rect, 2, border_radius=3)
+
+        cpu_x_centered = x + (size // 2 - size // 2)
+        self.screen.blit(fallback_surface, (cpu_x_centered, y))
+
 
     def draw_order_marker(self, order, position, label, is_dropoff=False, in_inventory=False):
         """Dibuja un marcador individual de pedido usando imágenes de paquete y dropoff."""
@@ -2413,6 +2678,7 @@ class CourierQuest:
         col1_x = sidebar_x
         col2_x = sidebar_x + col_width + panel_spacing
 
+        # ===== COLUMNA IZQUIERDA =====
         y1 = 30
         self.draw_compact_header(col1_x, y1, col_width)
         y1 += 85
@@ -2424,15 +2690,15 @@ class CourierQuest:
         y1 += 120
         self.draw_compact_weather(col1_x, y1, col_width)
 
-        # COLUMNA DERECHA
+        # ===== COLUMNA DERECHA =====
         y2 = 30
         self.draw_compact_legend(col2_x, y2, col_width)
         y2 += 85
 
-        # Mostrar estadísticas del CPU si está habilitado
+        # Mostrar panel del CPU si está habilitado
         if self.cpu_enabled and self.cpu_player:
-            self.draw_cpu_stats(col2_x, y2, col_width)
-            y2 += 110
+            self.draw_cpu_status(col2_x, y2, col_width)
+            y2 += 350  # ← ESPACIADO AJUSTADO para panel de 320px + margen
 
         self.draw_compact_tips(col2_x, y2, col_width)
         y2 += 100
