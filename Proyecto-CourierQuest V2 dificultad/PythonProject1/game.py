@@ -2015,7 +2015,7 @@ class CourierQuest:
             self.draw_game_over_overlay()
 
     def draw_cpu_player(self):
-        """Dibuja al CPU Player en el mapa usando imágenes direccionales."""
+        """Dibuja al CPU Player en el mapa usando imágenes direccionales con borde de color."""
         if not self.cpu_enabled or not self.cpu_player:
             return
 
@@ -2040,32 +2040,50 @@ class CourierQuest:
 
                 # Colores según stamina
                 if self.cpu_player.stamina > 30:
-                    border_color = (0, 200, 255)  # Cyan
                     fill_color = (50, 150, 255)  # Azul claro
                 elif self.cpu_player.stamina > 0:
-                    border_color = (255, 200, 0)  # Amarillo
-                    fill_color = (255, 180, 50)
+                    fill_color = (255, 180, 50)  # Amarillo
                 else:
-                    border_color = (255, 0, 0)  # Rojo
-                    fill_color = (200, 50, 50)
+                    fill_color = (200, 50, 50)  # Rojo
 
                 current_image.fill(fill_color)
-                pygame.draw.rect(current_image, border_color, current_image.get_rect(), 3)
 
         # Dibujar la imagen del CPU
         self.screen.blit(current_image, (screen_x, screen_y))
 
-        # Etiqueta "CPU" sobre la imagen
-        cpu_label = self.small_font.render("CPU", True, (255, 255, 255))
-        label_rect = cpu_label.get_rect(
-            center=(screen_x + (TILE_SIZE - 4) // 2, screen_y + (TILE_SIZE - 4) // 2)
+        # ===== BORDE DE COLOR SEGÚN STAMINA (como el jugador) =====
+        border_rect = pygame.Rect(
+            screen_x - 1,
+            screen_y - 1,
+            TILE_SIZE - 2,
+            TILE_SIZE - 2
         )
-        self.screen.blit(cpu_label, label_rect)
 
-        # Indicador de exhausto (barra roja arriba)
-        if self.cpu_player.stamina <= 0:
+        # Determinar color y grosor del borde según stamina
+        if self.cpu_player.stamina > 30:
+            border_color = (0, 255, 255)  # Cyan (para distinguir del jugador verde)
+            border_width = 2
+        elif self.cpu_player.stamina > 0:
+            border_color = (255, 165, 0)  # Naranja (para distinguir del jugador amarillo)
+            border_width = 3
+        else:
+            border_color = (255, 0, 0)  # Rojo
+            border_width = 4
+
+        # Dibujar el borde
+        pygame.draw.rect(self.screen, border_color, border_rect, border_width)
+
+        # ===== INDICADOR DE STAMINA BAJA (barra arriba) =====
+        if self.cpu_player.stamina <= 30:
             alert_rect = pygame.Rect(screen_x - 2, screen_y - 8, TILE_SIZE, 4)
-            pygame.draw.rect(self.screen, (255, 50, 50), alert_rect)
+
+            # Color de alerta según nivel de stamina
+            if self.cpu_player.stamina <= 0:
+                alert_color = (255, 50, 50)  # Rojo brillante (exhausto)
+            else:
+                alert_color = (255, 200, 0)  # Naranja (cansado)
+
+            pygame.draw.rect(self.screen, alert_color, alert_rect)
 
     def draw_weather_background(self):
         weather_color = self.weather_system.get_weather_color()
