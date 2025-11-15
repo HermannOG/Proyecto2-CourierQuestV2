@@ -157,7 +157,7 @@ class MediumAI(CPUPlayer):
 
     def __init__(self, game, player_id: str = "cpu_medium"):
         super().__init__(game, difficulty="medium", player_id=player_id)
-        self.look_ahead_depth = 2
+        self.look_ahead_depth = 2  # Horizonte de anticipación
         self.recalculation_interval = 2.0
         self.recalculation_timer = 0
 
