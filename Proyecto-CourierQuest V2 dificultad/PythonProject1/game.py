@@ -1268,7 +1268,7 @@ class CourierQuest:
         return actual_speed
 
     def interact_at_position(self):
-        """Interactua con pedidos en la posicion actual - CON DETECCION DE VICTORIA."""
+        """Interactua con pedidos en la posicion actual."""
         current_pos = self.player_pos
 
         # Intentar recoger pedidos
@@ -1304,6 +1304,8 @@ class CourierQuest:
                 if time_remaining > order.duration_minutes * 60 * 0.66:
                     bonus_multiplier = 1.1
                     bonus_text = " (+10% bonus rapido)"
+                    self.reputation = min(100, self.reputation + 5)
+                    self.last_delivery_was_clean = True
                 elif time_remaining <= 0:
                     bonus_multiplier = 0.5
                     bonus_text = " (-50% penalizacion tardio)"
@@ -1312,6 +1314,7 @@ class CourierQuest:
                     self.last_delivery_was_clean = False
                 else:
                     bonus_text = ""
+                    self.reputation = min(100, self.reputation + 3)
                     self.delivery_streak += 1
                     self.last_delivery_was_clean = True
 
@@ -1324,12 +1327,9 @@ class CourierQuest:
                 payout = int(order.payout * bonus_multiplier)
                 self.money += payout
 
-                # Actualizar reputacion
-                if time_remaining > 0 and bonus_multiplier >= 1.0:
-                    self.reputation = min(100, self.reputation + 2)
-
                 # Remover de inventario
                 self.inventory.remove(order)
+                order.status = "delivered"
                 self.completed_orders.append(order)
 
                 district = self._get_district_name(order.dropoff.x, order.dropoff.y)
@@ -1338,77 +1338,10 @@ class CourierQuest:
                     4.0, GREEN
                 )
 
-                # VERIFICAR VICTORIA INMEDIATAMENTE DESPUES DE LA ENTREGA
-                if self.money >= self.goal and not self.victory and not self.game_over:
-                    print(f"\nVICTORIA DETECTADA en interact_at_position!")
-                    print(f"Dinero: ${self.money} >= Meta: ${self.goal}")
-                    self.victory = True
-                    self.game_over = True
-                    self.add_game_message("VICTORIA! Meta alcanzada", 5.0, (255, 215, 0))
-
-                    # Guardar puntaje inmediatamente
-                    print("Guardando puntaje por victoria en entrega...")
-                    success = self.save_score()
-                    if success:
-                        print("Puntaje guardado exitosamente")
-                        self._score_saved = True
-                        self.game_state = "game_over"
-                    else:
-                        print("Error guardando puntaje")
-
+                # NO VERIFICAR VICTORIA AQUÍ
                 return
 
         self.add_game_message("No hay pedidos para interactuar aqui", 2.0, YELLOW)
-
-        for order in list(self.inventory):
-            if (order.dropoff.x == current_pos.x and order.dropoff.y == current_pos.y and
-                    order.status == "picked_up"):
-
-                time_remaining = self.get_order_time_remaining(order)
-                bonus_multiplier = 1.0
-
-                if time_remaining > order.duration_minutes * 60 * 0.66:
-                    bonus_multiplier = 1.1
-                    bonus_text = " (+10% bonus rápido)"
-                elif time_remaining <= 0:
-                    bonus_multiplier = 0.5
-                    bonus_text = " (-50% penalización tardío)"
-                    self.reputation -= 3
-                    self.delivery_streak = 0
-                    self.last_delivery_was_clean = False
-                else:
-                    bonus_text = ""
-                    self.delivery_streak += 1
-                    self.last_delivery_was_clean = True
-
-                if self.delivery_streak >= 3:
-                    streak_bonus = 0.05 * min(self.delivery_streak // 3, 4)
-                    bonus_multiplier += streak_bonus
-                    bonus_text += f" (+{streak_bonus * 100:.0f}% racha x{self.delivery_streak})"
-
-                payout = int(order.payout * bonus_multiplier)
-                self.money += payout
-
-                if time_remaining > 0 and bonus_multiplier >= 1.0:
-                    self.reputation = min(100, self.reputation + 2)
-
-                self.inventory.remove(order)
-                self.completed_orders.append(order)
-
-                district = self._get_district_name(order.dropoff.x, order.dropoff.y)
-                self.add_game_message(
-                    f" Entregado {order.id} en {district} → ${payout}{bonus_text}",
-                    4.0, GREEN
-                )
-
-                if self.money >= self.goal and not self.victory:
-                    self.victory = True
-                    self.game_over = True
-                    self.add_game_message(" ¡VICTORIA! Meta alcanzada", 5.0, (255, 215, 0))
-
-                return
-
-        self.add_game_message("No hay pedidos para interactuar aquí", 2.0, YELLOW)
 
     def accept_selected_order(self):
         """Acepta el pedido seleccionado en el overlay de pedidos."""
@@ -1702,7 +1635,6 @@ class CourierQuest:
 
     def update(self, dt: float):
         """Actualiza la lógica del juego con sistema de exhausto corregido."""
-
         if hasattr(self, '_score_saved') and self._score_saved:
             return
 
@@ -1793,90 +1725,79 @@ class CourierQuest:
                     )
                     self._last_recovery_message = current_time
 
-        # Condiciones de game over y victoria
+        # ========== CONDICIONES DE GAME OVER Y VICTORIA ==========
+        # PRIORIDAD 1: Verificar si el CPU ganó PRIMERO
+        if self.cpu_enabled and self.cpu_player and self.cpu_player.money >= self.goal:
+            if not self.game_over:
+                print("\n DERROTA: CPU alcanzó la meta primero")
+                self.victory = False  # El jugador NO ganó
+                self.game_over = True
+                self.add_game_message("¡DERROTA! El CPU alcanzó la meta primero.", 5.0, RED)
+
+                success = self.save_score()
+                if success:
+                    print("Puntaje guardado (derrota vs CPU)")
+                    self._score_saved = True
+
+                self.game_state = "game_over"
+                return  # ← MUY IMPORTANTE: Salir inmediatamente para que no ejecute las demás condiciones
+
+        # PRIORIDAD 2: Verificar reputación baja
         if self.reputation < 20:
             if not self.game_over:
-                print("\nGAME OVER: Reputacion baja")
+                print("\n GAME OVER: Reputación baja")
                 self.game_over = True
                 self.victory = False
-                self.add_game_message("Juego terminado! Reputacion muy baja.", 5.0, RED)
+                self.add_game_message("Juego terminado! Reputación muy baja.", 5.0, RED)
 
-                print("Guardando puntaje por reputacion baja...")
                 success = self.save_score()
                 if success:
-                    print("Puntaje guardado exitosamente")
+                    print("Puntaje guardado (reputación baja)")
                     self._score_saved = True
-                    self.game_state = "game_over"
-                else:
-                    print("Error guardando puntaje")
-
-        elif self.money >= self.goal:
-            if not self.game_over:
-                print("\nVICTORIA: Meta alcanzada")
-                self.victory = True
-                self.game_over = True
-
-                # Verificar si el CPU también ganó
-                if self.cpu_enabled and self.cpu_player and self.cpu_player.money >= self.goal:
-                    # Empate o el CPU ganó primero
-                    if self.cpu_player.money > self.money:
-                        self.add_game_message("¡El CPU ganó! Fue más rápido que tú.", 5.0, ORANGE)
-                        print("El CPU ganó la partida")
-                    else:
-                        self.add_game_message("¡Empate! Ambos alcanzaron la meta.", 5.0, YELLOW)
-                        print("Empate con el CPU")
-                else:
-                    self.add_game_message("¡Victoria! Meta de ingresos alcanzada.", 5.0, GREEN)
-
-                print("Guardando puntaje por victoria...")
-                success = self.save_score()
-                if success:
-                    print("Puntaje guardado exitosamente")
-                    self._score_saved = True
-                else:
-                    print("Error guardando puntaje")
 
                 self.game_state = "game_over"
+                return  # ← IMPORTANTE: Salir
 
-        # Verificar victoria del CPU
-        elif self.cpu_enabled and self.cpu_player and self.cpu_player.money >= self.goal:
+        # PRIORIDAD 3: Verificar si el JUGADOR alcanzó la meta
+        if self.money >= self.goal:
             if not self.game_over:
-                print("\nDERROTA: CPU alcanzó la meta primero")
-                self.victory = False
+                print("\n🎉 VICTORIA: Jugador alcanzó la meta")
+                self.victory = True  # El jugador SÍ ganó
                 self.game_over = True
-                self.add_game_message("¡El CPU ganó! Alcanzó la meta primero.", 5.0, RED)
+                self.add_game_message("¡VICTORIA! Meta de ingresos alcanzada.", 5.0, GREEN)
 
-                print("Guardando puntaje por derrota...")
                 success = self.save_score()
                 if success:
-                    print("Puntaje guardado exitosamente")
+                    print("Puntaje guardado (victoria)")
                     self._score_saved = True
-                else:
-                    print("Error guardando puntaje")
 
                 self.game_state = "game_over"
+                return  # ← IMPORTANTE: Salir
 
-        elif self.game_time >= self.max_game_time:
+        # PRIORIDAD 4: Verificar tiempo agotado
+        if self.game_time >= self.max_game_time:
             if not self.game_over:
-                print("\nTIEMPO AGOTADO")
+                print("\n TIEMPO AGOTADO")
                 self.game_over = True
 
+                # Solo es victoria si alcanzó la meta
                 if self.money >= self.goal:
                     self.victory = True
                     self.add_game_message("Victoria! Tiempo agotado pero meta cumplida.", 5.0, GREEN)
                 else:
                     self.victory = False
-                    self.add_game_message("Tiempo agotado! No se cumplio la meta.", 5.0, RED)
+                    self.add_game_message("Tiempo agotado! No se cumplió la meta.", 5.0, RED)
 
-                print("Guardando puntaje por tiempo agotado...")
                 success = self.save_score()
                 if success:
-                    print("Puntaje guardado exitosamente")
+                    print("Puntaje guardado (tiempo agotado)")
                     self._score_saved = True
-                else:
-                    print("Error guardando puntaje")
 
                 self.game_state = "game_over"
+
+    def get_district_name(self, position: Position) -> str:
+        """Obtiene el nombre del distrito basado en la posición."""
+        return self._get_district_name(position.x, position.y)
 
     def save_score(self, score: int = None):
         """Guarda el puntaje"""
@@ -3356,7 +3277,7 @@ class CourierQuest:
             self.screen.blit(text, text_rect)
 
     def draw_game_over_overlay(self):
-        """Overlay de fin de juego."""
+        """Overlay de fin de juego con mensaje correcto según quién ganó."""
         overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
         overlay.set_alpha(220)
         overlay.fill((20, 20, 40))
@@ -3366,62 +3287,101 @@ class CourierQuest:
         pygame.draw.rect(self.screen, UI_BACKGROUND, game_over_rect, border_radius=20)
         pygame.draw.rect(self.screen, UI_BORDER, game_over_rect, 5, border_radius=20)
 
+        # LÓGICA CORREGIDA: Determinar título y mensaje según el resultado
         if self.victory:
             title_text = self.title_font.render("¡VICTORIA!", True, UI_SUCCESS)
             message = f"¡Felicidades! Alcanzaste la meta de ${self.goal}"
         else:
-            title_text = self.title_font.render("JUEGO TERMINADO", True, UI_CRITICAL)
-            if self.reputation < 20:
+            # Determinar por qué perdió
+            if self.cpu_enabled and self.cpu_player and self.cpu_player.money >= self.goal:
+                title_text = self.title_font.render("¡DERROTA!", True, UI_CRITICAL)
+                message = f"El CPU ganó - Alcanzó ${self.goal} primero"
+            elif self.reputation < 20:
+                title_text = self.title_font.render("GAME OVER", True, UI_CRITICAL)
                 message = "Reputación demasiado baja"
+            elif self.game_time >= self.max_game_time:
+                title_text = self.title_font.render("TIEMPO AGOTADO", True, UI_CRITICAL)
+                message = f"No alcanzaste la meta de ${self.goal}"
             else:
-                message = f"Tiempo agotado. Necesitabas ${self.goal - self.money} más"
+                title_text = self.title_font.render("JUEGO TERMINADO", True, UI_CRITICAL)
+                message = "El juego ha terminado"
 
-        title_rect = title_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 - 240))
+        title_rect = title_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 - 220))
         self.screen.blit(title_text, title_rect)
 
-        final_score = self._calculate_final_score()
-        final_district = self._get_district_name(self.player_pos.x, self.player_pos.y)
-        efficiency = self.calculate_efficiency()
+        message_text = self.large_font.render(message, True, UI_TEXT_SECONDARY)
+        message_rect = message_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 - 170))
+        self.screen.blit(message_text, message_rect)
 
+        # Calcular y mostrar estadísticas
+        final_score = self._calculate_final_score()
+
+        stats_y = WINDOW_HEIGHT // 2 - 120
         stats = [
-            message,
-            "",
             f"PUNTAJE FINAL: {final_score}",
             f"Dinero obtenido: ${self.money} / ${self.goal}",
-            f"Reputación final: {self.reputation}/100",
+            f"Reputación final: {self.reputation}/100"
+        ]
+
+        for i, stat in enumerate(stats):
+            color = UI_SUCCESS if i == 0 and final_score > 0 else UI_TEXT_NORMAL
+            stat_text = self.large_font.render(stat, True, color)
+            stat_rect = stat_text.get_rect(center=(WINDOW_WIDTH // 2, stats_y + i * 35))
+            self.screen.blit(stat_text, stat_rect)
+
+        # Información adicional
+        details_y = WINDOW_HEIGHT // 2 - 10
+        details = [
             f"Pedidos completados: {len(self.completed_orders)}",
-            f"Eficiencia: {efficiency:.1f}%",
+            f"Eficiencia: {self._calculate_efficiency()}%",
             f"Ciudad: {self.city_name} ({self.city_width}x{self.city_height})",
-            f"Posición final: ({self.player_pos.x}, {self.player_pos.y}) - Distrito {final_district}",
+            f"Posición final: ({self.player_pos.x}, {self.player_pos.y}) - Distrito {self.get_district_name(self.player_pos)}",
             f"Mejor racha consecutiva: {getattr(self, 'delivery_streak', 0)}",
             f"Tiempo total jugado: {self.format_time(self.game_time)}"
         ]
 
-        for i, stat in enumerate(stats):
-            if not stat:
-                continue
+        for i, detail in enumerate(details):
+            detail_text = self.font.render(detail, True, UI_TEXT_SECONDARY)
+            detail_rect = detail_text.get_rect(center=(WINDOW_WIDTH // 2, details_y + i * 25))
+            self.screen.blit(detail_text, detail_rect)
 
-            if "PUNTAJE FINAL" in stat:
-                color = UI_SUCCESS if self.victory else UI_CRITICAL
-                font = self.large_font
-            elif "Dinero obtenido" in stat:
-                progress = (self.money / self.goal) * 100
-                color = UI_SUCCESS if progress >= 100 else UI_WARNING if progress >= 80 else UI_CRITICAL
-                font = self.font
-            elif "Reputación" in stat:
-                color = UI_SUCCESS if self.reputation >= 80 else UI_WARNING if self.reputation >= 50 else UI_CRITICAL
-                font = self.font
-            else:
-                color = UI_TEXT_NORMAL
-                font = self.small_font
+        # Mostrar información del CPU si está habilitado
+        if self.cpu_enabled and self.cpu_player:
+            cpu_y = WINDOW_HEIGHT // 2 + 140
+            cpu_info = [
+                f"--- COMPETIDOR CPU ---",
+                f"Dinero CPU: ${self.cpu_player.money}",
+                f"Reputación CPU: {self.cpu_player.reputation}",
+                f"Entregas CPU: {len(self.cpu_player.completed_orders)}"
+            ]
 
-            text_surface = font.render(stat, True, color)
-            text_rect = text_surface.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 - 200 + i * 25))
-            self.screen.blit(text_surface, text_rect)
+            for i, info in enumerate(cpu_info):
+                color = UI_WARNING if i == 0 else UI_TEXT_SECONDARY
+                cpu_text = self.small_font.render(info, True, color)
+                cpu_rect = cpu_text.get_rect(center=(WINDOW_WIDTH // 2, cpu_y + i * 20))
+                self.screen.blit(cpu_text, cpu_rect)
 
-        instruction_text = self.font.render("Presiona ESC para volver al menú principal", True, UI_TEXT_SECONDARY)
-        instruction_rect = instruction_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 + 220))
-        self.screen.blit(instruction_text, instruction_rect)
+        # Instrucciones finales
+        exit_text = self.large_font.render("Presiona ESC para volver al menú principal", True, UI_TEXT_HEADER)
+        exit_rect = exit_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 + 240))
+        self.screen.blit(exit_text, exit_rect)
+
+
+
+    def _calculate_efficiency(self) -> float:
+        """Calcula la eficiencia de entregas del jugador."""
+        try:
+            completed = len(self.completed_orders)
+            if completed == 0:
+                return 0.0
+
+            # Considerar pedidos completados vs tiempo total
+            expected_deliveries = max(1, int(self.game_time / 30))  # Asumiendo ~30s por entrega
+            efficiency = min(100.0, (completed / expected_deliveries) * 100)
+
+            return round(efficiency, 1)
+        except:
+            return 0.0
 
     def run(self):
         """Bucle principal del juego."""
@@ -3439,3 +3399,5 @@ class CourierQuest:
             self.draw()
 
         pygame.quit()
+
+

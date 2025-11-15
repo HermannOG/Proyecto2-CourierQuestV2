@@ -363,10 +363,7 @@ class CPUPlayer:
 
         print(f"CPU {self.player_id}: Orden {order.id} entregada - ${final_payout} (Rep: {self.reputation})")
 
-        if self.money >= self.game.goal:
-            print(f"🏆 CPU {self.player_id} HA GANADO! (${self.money})")
-            self.game.victory = True
-            self.game.game_over = True
+
 
     def _is_valid_move(self, pos: Position) -> bool:
         """Verifica si un movimiento es válido (NO ATRAVESAR EDIFICIOS)."""
