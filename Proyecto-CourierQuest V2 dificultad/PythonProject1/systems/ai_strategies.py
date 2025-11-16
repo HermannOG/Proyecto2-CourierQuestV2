@@ -165,11 +165,6 @@ class MediumAI(CPUPlayer):
         """Toma de decisiones con evaluación heurística - VERSIÓN FINAL CORREGIDA."""
         self.recalculation_timer += dt
 
-        # Verificar si necesita recuperar stamina
-        if self.is_low_stamina():
-            self._move_to_nearest_park()
-            return
-
         # PRIMERO: Intentar entregar si tiene paquetes
         if self.inventory:
             for order in list(self.inventory):
@@ -253,42 +248,158 @@ class MediumAI(CPUPlayer):
 
         return total_score
 
-    def _greedy_move_towards(self, target: Position):
-        """Movimiento greedy: reduce distancia Manhattan."""
-        best_move = None
-        best_distance = abs(target.x - self.pos.x) + abs(target.y - self.pos.y)
+    def _greedy_move_towards_safe(self, target: Position):
+        """
+        MEJORADO: Movimiento greedy con mejor evitación de obstáculos.
+        Usa BFS limitado para encontrar rutas alternativas cuando está bloqueado.
+        """
+        current_distance = abs(target.x - self.pos.x) + abs(target.y - self.pos.y)
 
+        # Si ya está en el destino, no hacer nada
+        if current_distance == 0:
+            return
+
+        moves = []
         directions = [
-            Position(self.pos.x + 1, self.pos.y),
-            Position(self.pos.x - 1, self.pos.y),
-            Position(self.pos.x, self.pos.y + 1),
-            Position(self.pos.x, self.pos.y - 1)
+            Position(self.pos.x + 1, self.pos.y),  # Este
+            Position(self.pos.x - 1, self.pos.y),  # Oeste
+            Position(self.pos.x, self.pos.y + 1),  # Sur
+            Position(self.pos.x, self.pos.y - 1)  # Norte
         ]
 
         for direction in directions:
             if not self._is_valid_move(direction):
                 continue
 
-            distance = abs(target.x - direction.x) + abs(target.y - direction.y)
+            new_distance = abs(target.x - direction.x) + abs(target.y - direction.y)
 
-            if distance < best_distance:
-                best_distance = distance
-                best_move = direction
+            # Calcular score considerando:
+            # 1. Reducción de distancia (más importante)
+            # 2. Seguridad (espacios abiertos)
+            distance_improvement = current_distance - new_distance
+            safety_score = self._calculate_safety_score(direction)
 
-        if best_move:
-            success = self.execute_move(best_move, 0.016)
-            if not success:
-                print(f"CPU {self.player_id}: Movimiento falló")
+            # Priorizar movimientos que reducen distancia, pero considerar seguridad
+            move_score = distance_improvement * 10.0 + safety_score
 
-    def _move_to_nearest_park(self):
-        """Mueve hacia el parque más cercano."""
-        nearest_park = self.find_nearest_park()
+            moves.append((direction, move_score, new_distance))
 
-        if nearest_park:
-            if self.pos.x == nearest_park.x and self.pos.y == nearest_park.y:
-                return
-            self._greedy_move_towards(nearest_park)
+        if not moves:
+            # Si no hay movimientos válidos, intentar BFS para encontrar ruta alternativa
+            print(f"CPU {self.player_id}: ⚠️ No hay movimientos directos, usando BFS")
+            path = self._limited_bfs(target, max_depth=25)
 
+            if path and len(path) > 1:
+                next_step = path[1]
+                self.execute_move(next_step, 0.016)
+            return
+
+        # Ordenar por score (mayor es mejor)
+        moves.sort(key=lambda x: x[1], reverse=True)
+
+        # Intentar el mejor movimiento
+        best_direction, best_score, best_distance = moves[0]
+
+        # CRÍTICO: Si el mejor movimiento NO mejora la distancia, usar BFS inmediatamente
+        if best_distance >= current_distance:
+            print(f"CPU {self.player_id}: ⚠️ Movimiento greedy no mejora distancia, usando BFS")
+            path = self._limited_bfs(target, max_depth=25)
+
+            if path and len(path) > 1:
+                next_step = path[1]
+                success = self.execute_move(next_step, 0.016)
+                if success:
+                    return
+                else:
+                    # Si BFS también falla, intentar cualquier movimiento válido
+                    for move, _, _ in moves:
+                        if self.execute_move(move, 0.016):
+                            return
+            else:
+                # Si BFS no encuentra camino, intentar cualquier movimiento válido
+                print(f"CPU {self.player_id}: BFS no encontró camino, movimiento aleatorio")
+                for move, _, _ in moves:
+                    if self.execute_move(move, 0.016):
+                        return
+            return
+
+        # Ejecutar el mejor movimiento disponible (que sí mejora distancia)
+        self.execute_move(best_direction, 0.016)
+
+    def _calculate_safety_score(self, pos: Position) -> float:
+        """
+        Calcula un score de seguridad basado en espacios abiertos adyacentes.
+        Evita callejones sin salida y esquinas.
+        """
+        if not self.game.tiles or not self.game.legend:
+            return 2.0
+
+        safety_score = 0.0
+
+        adjacent_positions = [
+            Position(pos.x + 1, pos.y),
+            Position(pos.x - 1, pos.y),
+            Position(pos.x, pos.y + 1),
+            Position(pos.x, pos.y - 1)
+        ]
+
+        for adj_pos in adjacent_positions:
+            if self._is_valid_move(adj_pos):
+                safety_score += 1.0
+
+        return safety_score
+
+    def _limited_bfs(self, target: Position, max_depth: int = 25) -> Optional[List[Position]]:
+        """
+        BFS limitado para encontrar un camino corto al objetivo.
+        Útil cuando el camino directo está bloqueado pero hay rutas cercanas.
+
+        MEJORADO: Mayor profundidad para rodear edificios grandes.
+        """
+        from collections import deque
+
+        if not self._is_valid_move(self.pos):
+            return None
+
+        # Usar tuplas (x, y) en lugar de objetos Position para visited
+        queue = deque([(self.pos, [self.pos])])
+        visited = {(self.pos.x, self.pos.y)}
+
+        directions = [
+            (0, 1),  # Sur
+            (0, -1),  # Norte
+            (1, 0),  # Este
+            (-1, 0)  # Oeste
+        ]
+
+        while queue:
+            current_pos, path = queue.popleft()
+
+            # Si el camino es muy largo, detenerse
+            if len(path) > max_depth:
+                continue
+
+            # Si llegamos al objetivo
+            if current_pos.x == target.x and current_pos.y == target.y:
+                print(f"CPU {self.player_id}: ✓ BFS encontró camino de {len(path)} pasos")
+                return path
+
+            # Explorar vecinos
+            for dx, dy in directions:
+                next_pos = Position(current_pos.x + dx, current_pos.y + dy)
+                next_tuple = (next_pos.x, next_pos.y)
+
+                if next_tuple not in visited and self._is_valid_move(next_pos):
+                    visited.add(next_tuple)
+                    new_path = path + [next_pos]
+                    queue.append((next_pos, new_path))
+
+        print(f"CPU {self.player_id}: ✗ BFS no encontró camino en {max_depth} pasos")
+        return None
+
+    def _greedy_move_towards(self, target: Position):
+        """Redirige al método seguro mejorado."""
+        self._greedy_move_towards_safe(target)
 
 # ============================================================================
 # NIVEL DIFÍCIL - ALGORITMOS DE GRAFOS (A* + TSP) CON ESTRATEGIA DE DESCANSO
