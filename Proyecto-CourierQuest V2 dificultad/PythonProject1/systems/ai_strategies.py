@@ -97,34 +97,14 @@ class EasyAI(CPUPlayer):
             self.action_state = "moving_to_pickup"
 
     def _random_move_towards(self, target: Position):
-        """
-        Movimiento semi-aleatorio hacia el objetivo.
-
-        70% de probabilidad: Usa movimiento greedy hacia el objetivo
-        30% de probabilidad: Usa random walk
-
-        Args:
-            target: Posición objetivo
-
-        Comportamiento:
-            Esta mezcla de estrategias crea un comportamiento impredecible
-            característico del nivel fácil, pero con cierta tendencia hacia el objetivo.
-        """
+        """Movimiento semi-aleatorio hacia el objetivo."""
         if random.random() < 0.7:
             self._greedy_move_towards(target)
         else:
             self._random_walk()
 
     def _random_walk(self):
-        """
-        Realiza un movimiento completamente aleatorio.
-
-        Baraja las 4 direcciones posibles y elige la primera que sea válida.
-        Implementa el comportamiento de "Random Walk" característico del nivel fácil.
-
-        Complejidad:
-            O(1) - Evalúa máximo 4 direcciones
-        """
+        """Movimiento completamente aleatorio."""
         directions = [
             Position(self.pos.x + 1, self.pos.y),
             Position(self.pos.x - 1, self.pos.y),
@@ -256,22 +236,7 @@ class MediumAI(CPUPlayer):
             print(f"CPU {self.player_id}: Eligió orden {best_order.id} (Score: {best_score:.2f})")
 
     def _calculate_order_score(self, order: Order) -> float:
-        """
-        Calcula el score heurístico de una orden para evaluación greedy.
-
-        Fórmula: score = α*payout - β*distance - γ*weather_penalty + priority_bonus
-
-        Args:
-            order: Orden a evaluar
-
-        Returns:
-            float: Score calculado (mayor es mejor)
-
-        Parámetros heurísticos:
-            α (alpha) = 1.5: Peso del pago
-            β (beta) = 2.0: Peso de la distancia
-            γ (gamma) = 10.0: Peso de la penalización climática
-        """
+        """Calcula score: α*payout - β*distance - γ*weather_penalty"""
         alpha = 1.5
         payout_score = alpha * order.payout
 
@@ -289,26 +254,15 @@ class MediumAI(CPUPlayer):
         return total_score
 
     def _greedy_move_towards(self, target: Position):
-        """
-        Realiza un movimiento greedy hacia el objetivo.
-
-        Evalúa las 4 direcciones posibles (norte, sur, este, oeste) y elige
-        la que más reduce la distancia Manhattan al objetivo.
-
-        Args:
-            target: Posición objetivo hacia la cual moverse
-
-        Complejidad:
-            O(1) - Evalúa exactamente 4 direcciones
-        """
+        """Movimiento greedy: reduce distancia Manhattan."""
         best_move = None
         best_distance = abs(target.x - self.pos.x) + abs(target.y - self.pos.y)
 
         directions = [
-            Position(self.pos.x + 1, self.pos.y),  # Este
-            Position(self.pos.x - 1, self.pos.y),  # Oeste
-            Position(self.pos.x, self.pos.y + 1),  # Sur
-            Position(self.pos.x, self.pos.y - 1)  # Norte
+            Position(self.pos.x + 1, self.pos.y),
+            Position(self.pos.x - 1, self.pos.y),
+            Position(self.pos.x, self.pos.y + 1),
+            Position(self.pos.x, self.pos.y - 1)
         ]
 
         for direction in directions:
@@ -641,7 +595,7 @@ class HardAI(CPUPlayer):
 
     def _estimate_stamina_needed_for_current_orders(self) -> float:
         """
-        Estima cuánta stamina se necesita para completar las órdenes actuales.
+        NUEVO: Estima cuánta stamina se necesita para completar las órdenes actuales.
         """
         stamina_estimate = 0.0
 
@@ -667,53 +621,43 @@ class HardAI(CPUPlayer):
 
     def _calculate_optimal_path(self, target: Position):
         """
-        Calcula el camino óptimo usando A* con fallback a Dijkstra.
-
-        Proceso:
-            1. Valida que el target sea caminable (o encuentra el más cercano)
-            2. Intenta calcular camino con A*
-            3. Valida el camino calculado
-            4. Si falla, usa Dijkstra como fallback
-            5. Si ambos fallan, usa movimiento greedy
-
-        Args:
-            target: Posición objetivo
-
-        Efectos secundarios:
-            - Actualiza self.current_path
-            - Actualiza self.current_target
-            - Reinicia self.stuck_counter si es exitoso
-
-        Complejidad:
-            - A*: O(b^d) donde b es el factor de ramificación y d la profundidad
-            - En práctica: O(n log n) con n = número de nodos visitados
+        Calcula ruta óptima con A*.
+        MEJORADO: Mejor validación, logging y manejo de targets inválidos.
         """
         if not self.pathfinder:
-            print(f"CPU {self.player_id}:Pathfinder no disponible, usando greedy")
+            print(f"CPU {self.player_id}: ⚠️ Pathfinder no disponible, usando greedy")
             self.current_target = target
             self._greedy_move_towards_safe(target)
             return
 
-        # Validación de posición actual
+        # DEBUG: Verificar posición actual
         if not self._is_valid_move(self.pos):
-            print(f"CPU {self.player_id}:ERROR - Posición actual ({self.pos.x}, {self.pos.y}) no es válida!")
+            print(f"CPU {self.player_id}: ⚠️ ERROR - Posición actual ({self.pos.x}, {self.pos.y}) no es válida!")
             return
 
-        # Validar si el target es caminable
+        # VALIDACIÓN 1: Si el target no es walkable, encontrar posición cercana
         if not self._is_valid_move(target):
-            print(f"CPU {self.player_id}: Target ({target.x}, {target.y}) no es caminable")
+            print(f"CPU {self.player_id}: Target ({target.x}, {target.y}) no es caminable (edificio/bloqueado)")
+
+            # Verificar qué tipo de tile es
+            if target.y < len(self.game.tiles) and target.x < len(self.game.tiles[target.y]):
+                tile_char = self.game.tiles[target.y][target.x]
+                tile_info = self.game.legend.get(tile_char, {})
+                tile_type = tile_info.get('tipo', 'unknown')
+                print(f"CPU {self.player_id}: Tile en target es tipo '{tile_type}'")
+
             walkable_target = self.pathfinder.get_closest_walkable_position(target)
 
             if walkable_target:
                 target = walkable_target
-                print(f"CPU {self.player_id}: Usando target ajustado ({target.x}, {target.y})")
+                print(f"CPU {self.player_id}: ✓ Usando target ajustado ({target.x}, {target.y})")
             else:
-                print(f"CPU {self.player_id}: No se encontró posición caminable cercana")
+                print(f"CPU {self.player_id}: ✗ No se encontró posición caminable cercana")
                 self.current_target = target
                 self._greedy_move_towards_safe(target)
                 return
 
-        # Verificar si ya está en el target
+        # VALIDACIÓN 2: Si ya está en el target
         if self.pos.x == target.x and self.pos.y == target.y:
             self.current_path = []
             self.path_index = 0
@@ -726,7 +670,7 @@ class HardAI(CPUPlayer):
         path = self.pathfinder.a_star(self.pos, target, weather_penalty)
 
         if path and len(path) > 1:
-            # Validar que el camino es válido
+            # VALIDACIÓN 3: Verificar que el camino es válido
             valid_path = self._validate_path(path)
 
             if valid_path:
@@ -736,7 +680,6 @@ class HardAI(CPUPlayer):
                 self.stuck_counter = 0
                 print(f"CPU {self.player_id}: ✓ Ruta A* exitosa ({len(self.current_path)} pasos)")
             else:
-                # Intentar con Dijkstra
                 print(f"CPU {self.player_id}: ✗ Camino A* inválido, intentando Dijkstra")
                 path = self.pathfinder.dijkstra(self.pos, target, weather_penalty)
 
@@ -818,6 +761,7 @@ class HardAI(CPUPlayer):
                 self._calculate_optimal_path(self.current_target)
             return
 
+        # VALIDACIÓN: Re-verificar que la posición es válida antes de moverse
         if not self._is_valid_move(next_pos):
             print(f"CPU {self.player_id}: Posición del camino bloqueada ({next_pos.x}, {next_pos.y}), replanificando")
             self.current_path = []
@@ -834,6 +778,7 @@ class HardAI(CPUPlayer):
             self.path_index += 1
             self.stuck_counter = 0
 
+            # Si terminó el camino
             if self.path_index >= len(self.current_path):
                 self.current_path = []
                 self.path_index = 0
@@ -900,8 +845,9 @@ class HardAI(CPUPlayer):
         valid_orders.sort(key=lambda x: x[1], reverse=True)
         top_orders = [order for order, score in valid_orders[:min(5, len(valid_orders))]]
 
+        # CORREGIDO: Usar _plan_delivery_sequence en lugar de _optimize_delivery_sequence
         if self.tsp_solver and len(top_orders) > 1:
-            optimized_sequence = self._optimize_delivery_sequence(top_orders)
+            optimized_sequence = self._plan_delivery_sequence(top_orders)
             if optimized_sequence:
                 top_orders = optimized_sequence
 
@@ -916,15 +862,19 @@ class HardAI(CPUPlayer):
         Planifica la secuencia óptima de entregas usando TSP aproximado.
         Utiliza el algoritmo Nearest Neighbor para resolver una aproximación
         del problema del viajante (Traveling Salesman Problem).
+
         Args:
             orders: Lista de órdenes a secuenciar
+
         Returns:
             Lista de órdenes ordenadas según la ruta óptima aproximada
+
         Algoritmo:
             Nearest Neighbor TSP - O(n²)
             - Comienza desde la posición actual
             - En cada paso, elige el pickup más cercano no visitado
             - Continúa hasta visitar todos los pickups
+
         Nota:
             Esta es una aproximación heurística, no garantiza la solución óptima
             pero es computacionalmente eficiente.
@@ -944,10 +894,27 @@ class HardAI(CPUPlayer):
 
         return ordered_orders
 
+    def _optimize_delivery_sequence(self, orders: List[Order]) -> List[Order]:
+        """Optimiza secuencia con TSP."""
+        if not orders or not self.tsp_solver:
+            return orders
+
+        pickup_positions = [o.pickup for o in orders]
+        optimal_route = self.tsp_solver.nearest_neighbor(self.pos, pickup_positions)
+
+        ordered_orders = []
+        for pos in optimal_route:
+            for order in orders:
+                if order.pickup.x == pos.x and order.pickup.y == pos.y and order not in ordered_orders:
+                    ordered_orders.append(order)
+                    break
+
+        return ordered_orders
+
     def _calculate_order_score(self, order: Order) -> float:
         """
         Calcula score de orden.
-        Considera si tendrá suficiente stamina para completarla.
+        MEJORADO: Considera si tendrá suficiente stamina para completarla.
         """
         alpha = 1.5
         payout_score = alpha * order.payout
@@ -1125,7 +1092,7 @@ class HardAI(CPUPlayer):
 
     def _calculate_safety_score(self, pos: Position) -> float:
         """
-        Calcula un score de seguridad para una posición.
+        NUEVO: Calcula un score de seguridad para una posición.
         """
         if not self.game.tiles or not self.game.legend:
             return 2.0
@@ -1276,7 +1243,6 @@ class HardAI(CPUPlayer):
 
 
 
-
 # ============================================================================
 # FACTORY
 # ============================================================================
@@ -1296,4 +1262,3 @@ def create_cpu_player(game, difficulty: str, player_id: str = None) -> CPUPlayer
         return HardAI(game, player_id)
     else:
         raise ValueError(f"Dificultad inválida: {difficulty}. Use 'easy', 'medium' o 'hard'")
-
