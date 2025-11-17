@@ -157,9 +157,21 @@ class MediumAI(CPUPlayer):
 
     def __init__(self, game, player_id: str = "cpu_medium"):
         super().__init__(game, difficulty="medium", player_id=player_id)
-        self.look_ahead_depth = 2  # Horizonte de anticipación
+        self.look_ahead_depth = 2
         self.recalculation_interval = 2.0
         self.recalculation_timer = 0
+
+        # Para seguir caminos BFS
+        self.bfs_path = []
+        self.bfs_path_index = 0
+
+        # NUEVO: Detección de oscilación/bucle
+        self.position_history = []
+        self.max_history_length = 8
+        self.oscillation_threshold = 3  # Si visita la misma posición 3 veces
+        self.last_distance_to_target = None
+        self.no_progress_counter = 0
+        self.max_no_progress = 4
 
     def make_decision(self, dt: float):
         """Toma de decisiones con evaluación heurística - VERSIÓN FINAL CORREGIDA."""
@@ -250,15 +262,87 @@ class MediumAI(CPUPlayer):
 
     def _greedy_move_towards_safe(self, target: Position):
         """
-        MEJORADO: Movimiento greedy con mejor evitación de obstáculos.
-        Usa BFS limitado para encontrar rutas alternativas cuando está bloqueado.
+        MEJORADO: Movimiento greedy con detección de oscilación y BFS.
+        Detecta cuando el CPU está oscilando entre las mismas posiciones.
         """
+        # Si tenemos un camino BFS activo, seguirlo
+        if self.bfs_path and self.bfs_path_index < len(self.bfs_path):
+            next_pos = self.bfs_path[self.bfs_path_index]
+
+            # Verificar que todavía es válido
+            if self._is_valid_move(next_pos):
+                success = self.execute_move(next_pos, 0.016)
+                if success:
+                    self.bfs_path_index += 1
+                    self._add_to_position_history(next_pos)
+
+                    # Si terminamos el camino BFS, limpiarlo
+                    if self.bfs_path_index >= len(self.bfs_path):
+                        print(f"CPU {self.player_id}: ✓ Completó camino BFS")
+                        self.bfs_path = []
+                        self.bfs_path_index = 0
+                        self.no_progress_counter = 0
+                    return
+                else:
+                    # Si falló el movimiento, invalidar el camino
+                    print(f"CPU {self.player_id}: ✗ Camino BFS bloqueado, recalculando")
+                    self.bfs_path = []
+                    self.bfs_path_index = 0
+            else:
+                # Si la posición ya no es válida, invalidar el camino
+                self.bfs_path = []
+                self.bfs_path_index = 0
+
+        # Calcular distancia actual al objetivo
         current_distance = abs(target.x - self.pos.x) + abs(target.y - self.pos.y)
 
-        # Si ya está en el destino, no hacer nada
+        # Si ya está en el destino
         if current_distance == 0:
+            self.bfs_path = []
+            self.bfs_path_index = 0
+            self.no_progress_counter = 0
+            self.position_history = []
             return
 
+        # DETECCIÓN DE NO PROGRESO
+        if self.last_distance_to_target is not None:
+            if current_distance >= self.last_distance_to_target:
+                self.no_progress_counter += 1
+            else:
+                self.no_progress_counter = 0
+
+        self.last_distance_to_target = current_distance
+
+        # DETECCIÓN DE OSCILACIÓN (visitando las mismas posiciones)
+        is_oscillating = self._is_oscillating()
+
+        # Si está oscilando o sin progreso, activar BFS inmediatamente
+        if is_oscillating or self.no_progress_counter >= self.max_no_progress:
+            if is_oscillating:
+                print(f"CPU {self.player_id}: ⚠️ OSCILACIÓN detectada, activando BFS")
+            else:
+                print(
+                    f"CPU {self.player_id}: ⚠️ Sin progreso por {self.no_progress_counter} movimientos, activando BFS")
+
+            path = self._limited_bfs(target, max_depth=35)
+
+            if path and len(path) > 1:
+                self.bfs_path = path[1:]
+                self.bfs_path_index = 0
+                self.no_progress_counter = 0
+                self.position_history = []
+
+                next_step = self.bfs_path[0]
+                if self.execute_move(next_step, 0.016):
+                    self.bfs_path_index = 1
+                    self._add_to_position_history(next_step)
+                    return
+            else:
+                print(f"CPU {self.player_id}: ✗ BFS no encontró camino")
+                self.position_history = []
+                self.no_progress_counter = 0
+
+        # Evaluar movimientos posibles
         moves = []
         directions = [
             Position(self.pos.x + 1, self.pos.y),  # Este
@@ -273,58 +357,78 @@ class MediumAI(CPUPlayer):
 
             new_distance = abs(target.x - direction.x) + abs(target.y - direction.y)
 
-            # Calcular score considerando:
-            # 1. Reducción de distancia (más importante)
-            # 2. Seguridad (espacios abiertos)
+            # Calcular score
             distance_improvement = current_distance - new_distance
             safety_score = self._calculate_safety_score(direction)
 
-            # Priorizar movimientos que reducen distancia, pero considerar seguridad
-            move_score = distance_improvement * 10.0 + safety_score
+            # PENALIZAR posiciones visitadas recientemente
+            visit_penalty = self._get_visit_penalty(direction)
+
+            move_score = distance_improvement * 10.0 + safety_score - visit_penalty
 
             moves.append((direction, move_score, new_distance))
 
         if not moves:
-            # Si no hay movimientos válidos, intentar BFS para encontrar ruta alternativa
-            print(f"CPU {self.player_id}: ⚠️ No hay movimientos directos, usando BFS")
-            path = self._limited_bfs(target, max_depth=25)
+            # No hay movimientos válidos
+            print(f"CPU {self.player_id}: ⚠️ No hay movimientos válidos, usando BFS")
+            path = self._limited_bfs(target, max_depth=35)
 
             if path and len(path) > 1:
-                next_step = path[1]
-                self.execute_move(next_step, 0.016)
+                self.bfs_path = path[1:]
+                self.bfs_path_index = 0
+                self.no_progress_counter = 0
+                self.position_history = []
+
+                next_step = self.bfs_path[0]
+                if self.execute_move(next_step, 0.016):
+                    self.bfs_path_index = 1
+                    self._add_to_position_history(next_step)
             return
 
         # Ordenar por score (mayor es mejor)
         moves.sort(key=lambda x: x[1], reverse=True)
 
-        # Intentar el mejor movimiento
+        # Ejecutar el mejor movimiento
         best_direction, best_score, best_distance = moves[0]
 
-        # CRÍTICO: Si el mejor movimiento NO mejora la distancia, usar BFS inmediatamente
-        if best_distance >= current_distance:
-            print(f"CPU {self.player_id}: ⚠️ Movimiento greedy no mejora distancia, usando BFS")
-            path = self._limited_bfs(target, max_depth=25)
+        success = self.execute_move(best_direction, 0.016)
+        if success:
+            self._add_to_position_history(best_direction)
 
-            if path and len(path) > 1:
-                next_step = path[1]
-                success = self.execute_move(next_step, 0.016)
-                if success:
-                    return
-                else:
-                    # Si BFS también falla, intentar cualquier movimiento válido
-                    for move, _, _ in moves:
-                        if self.execute_move(move, 0.016):
-                            return
-            else:
-                # Si BFS no encuentra camino, intentar cualquier movimiento válido
-                print(f"CPU {self.player_id}: BFS no encontró camino, movimiento aleatorio")
-                for move, _, _ in moves:
-                    if self.execute_move(move, 0.016):
-                        return
-            return
+    def _add_to_position_history(self, pos: Position):
+        """Añade una posición al historial."""
+        self.position_history.append((pos.x, pos.y))
 
-        # Ejecutar el mejor movimiento disponible (que sí mejora distancia)
-        self.execute_move(best_direction, 0.016)
+        # Mantener solo las últimas N posiciones
+        if len(self.position_history) > self.max_history_length:
+            self.position_history.pop(0)
+
+    def _is_oscillating(self) -> bool:
+        """
+        Detecta si el CPU está oscilando entre las mismas posiciones.
+        Retorna True si una posición aparece más de N veces en el historial.
+        """
+        if len(self.position_history) < 4:
+            return False
+
+        # Contar frecuencia de cada posición
+        position_counts = {}
+        for pos in self.position_history:
+            position_counts[pos] = position_counts.get(pos, 0) + 1
+
+        # Si alguna posición aparece más de 3 veces, está oscilando
+        max_count = max(position_counts.values())
+        return max_count >= self.oscillation_threshold
+
+    def _get_visit_penalty(self, pos: Position) -> float:
+        """
+        Retorna una penalización basada en cuántas veces se ha visitado recientemente.
+        """
+        pos_tuple = (pos.x, pos.y)
+        count = self.position_history.count(pos_tuple)
+
+        # Penalización progresiva
+        return count * 5.0
 
     def _calculate_safety_score(self, pos: Position) -> float:
         """
@@ -349,19 +453,16 @@ class MediumAI(CPUPlayer):
 
         return safety_score
 
-    def _limited_bfs(self, target: Position, max_depth: int = 25) -> Optional[List[Position]]:
+    def _limited_bfs(self, target: Position, max_depth: int = 35) -> Optional[List[Position]]:
         """
         BFS limitado para encontrar un camino corto al objetivo.
         Útil cuando el camino directo está bloqueado pero hay rutas cercanas.
-
-        MEJORADO: Mayor profundidad para rodear edificios grandes.
         """
         from collections import deque
 
         if not self._is_valid_move(self.pos):
             return None
 
-        # Usar tuplas (x, y) en lugar de objetos Position para visited
         queue = deque([(self.pos, [self.pos])])
         visited = {(self.pos.x, self.pos.y)}
 
@@ -375,7 +476,6 @@ class MediumAI(CPUPlayer):
         while queue:
             current_pos, path = queue.popleft()
 
-            # Si el camino es muy largo, detenerse
             if len(path) > max_depth:
                 continue
 
