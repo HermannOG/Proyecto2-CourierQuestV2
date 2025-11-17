@@ -2923,7 +2923,7 @@ class CourierQuest:
 
     def draw_compact_weather(self, x: int, y: int, width: int):
         """Indicador del clima con imagen (1.6x del tamaño original = 120px)."""
-        weather_bg = pygame.Rect(x - 8, y - 5, width + 16, 165)
+        weather_bg = pygame.Rect(x - 8, y - 5, width + 16, 190)
         pygame.draw.rect(self.screen, UI_HIGHLIGHT, weather_bg, border_radius=6)
         pygame.draw.rect(self.screen, UI_BORDER, weather_bg, 2, border_radius=6)
 
@@ -2931,7 +2931,7 @@ class CourierQuest:
         self.screen.blit(title, (x + 5, y))
 
         current_weather = self.weather_system.current_condition
-        image_size = 120
+        image_size = 140
         weather_image_pos = (x + 8, y + 32)
 
         if current_weather in self.weather_images:

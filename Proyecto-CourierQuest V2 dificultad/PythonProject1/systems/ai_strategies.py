@@ -27,6 +27,8 @@ class EasyAI(CPUPlayer):
         self.max_stuck_attempts = 5
         self.random_target_timer = 0
         self.random_target_interval = 3.0
+        self.move_cooldown = 0.25
+        self.decision_interval = 0.3
 
     def make_decision(self, dt: float):
         """Toma de decisiones aleatoria - VERSIÓN FINAL CORREGIDA."""
@@ -98,7 +100,9 @@ class EasyAI(CPUPlayer):
 
     def _random_move_towards(self, target: Position):
         """Movimiento semi-aleatorio hacia el objetivo."""
-        if random.random() < 0.7:
+        # 70% de probabilidad de acercarse al objetivo
+        # 30% de probabilidad de movimiento completamente aleatorio
+        if random.random() < 0.75:
             self._greedy_move_towards(target)
         else:
             self._random_walk()
@@ -188,16 +192,15 @@ class MediumAI(CPUPlayer):
         - Evalúa movimientos potenciales con función de puntuación simple:
           score = α*(expected payout) - β*(distance cost) - γ*(weather penalty)
         - Selecciona el movimiento con la puntuación máxima
-        - NUEVO: Cuando stamina <= 10, va automáticamente a un parque y espera
-          hasta que se recargue a 100
-        - USA GREEDY como método principal, BFS solo cuando se queda pegado
+        - Cuando stamina <= 10, va automáticamente a un parque y espera
+        - USA GREEDY como método principal
         """
         self.recalculation_timer += dt
 
         # ===== SISTEMA DE DESCANSO CUANDO STAMINA <= 10 =====
 
         # Verificar si necesita descansar (stamina llegó a 10 o menos)
-        if self.stamina <= 10.0 and not self.needs_rest:
+        if self.stamina <= 15.0 and not self.needs_rest:
             print(f"CPU {self.player_id}: STAMINA BAJA ({self.stamina:.1f})! Buscando parque para descansar...")
             self.needs_rest = True
             self.is_resting_medium = False
@@ -220,8 +223,8 @@ class MediumAI(CPUPlayer):
                     self.is_resting_medium = True
 
                 # Esperar hasta que stamina llegue a 100
-                if self.stamina >= 80.0:
-                    print(f"CPU {self.player_id}: ✅ Stamina recargada completamente! Regresando al trabajo...")
+                if self.stamina >= 85.0:
+                    print(f"CPU {self.player_id}: Stamina recargada completamente! Regresando al trabajo...")
                     self.needs_rest = False
                     self.is_resting_medium = False
                     self.rest_target = None
@@ -233,7 +236,7 @@ class MediumAI(CPUPlayer):
                     import time
                     current_time = time.time()
                     if current_time - self._last_rest_message >= 3.0:
-                        print(f"CPU {self.player_id}: 🌳 Descansando en parque ({self.stamina:.1f}/100)")
+                        print(f"CPU {self.player_id}: Descansando en parque ({self.stamina:.1f}/100)")
                         self._last_rest_message = current_time
                     return  # Quedarse quieto mientras descansa
             else:
@@ -242,9 +245,9 @@ class MediumAI(CPUPlayer):
                     self.rest_target = self.find_nearest_park()
                     if self.rest_target:
                         print(
-                            f"CPU {self.player_id}: 🏃 Dirigiéndose al parque en ({self.rest_target.x}, {self.rest_target.y})")
+                            f"CPU {self.player_id}: Dirigiéndose al parque en ({self.rest_target.x}, {self.rest_target.y})")
                     else:
-                        print(f"CPU {self.player_id}: ⚠️ No hay parques disponibles! Esperando recuperación natural...")
+                        print(f"CPU {self.player_id}: No hay parques disponibles! Esperando recuperación natural...")
                         return
 
                 # Moverse hacia el parque usando GREEDY (con BFS como fallback)
@@ -403,7 +406,7 @@ class MediumAI(CPUPlayer):
 
             for count in position_counts.values():
                 if count >= self.oscillation_threshold:
-                    print(f"CPU {self.player_id}: 🔄 Oscilación detectada, usando BFS como fallback")
+                    print(f"CPU {self.player_id}: Oscilación detectada, usando BFS como fallback")
                     # FALLBACK: Usar BFS solo cuando se queda pegado
                     self._move_via_bfs(target)
                     return
@@ -418,7 +421,7 @@ class MediumAI(CPUPlayer):
                 self.no_progress_counter = 0
 
             if self.no_progress_counter >= self.max_no_progress:
-                print(f"CPU {self.player_id}: 🛑 Sin progreso detectado, usando BFS como fallback")
+                print(f"CPU {self.player_id}: Sin progreso detectado, usando BFS como fallback")
                 # FALLBACK: Usar BFS solo cuando no progresa
                 self._move_via_bfs(target)
                 self.no_progress_counter = 0
@@ -465,7 +468,7 @@ class MediumAI(CPUPlayer):
         if best_move:
             success = self.execute_move(best_move, 0.016)
             if not success:
-                print(f"CPU {self.player_id}: ⚠️ Movimiento greedy falló, intentando otro")
+                print(f"CPU {self.player_id}: Movimiento greedy falló, intentando otro")
 
     def _greedy_move_towards_safe(self, target: Position):
         """
@@ -502,7 +505,7 @@ class MediumAI(CPUPlayer):
                 return
 
         # FALLBACK: Si el movimiento greedy falló, usar BFS
-        print(f"CPU {self.player_id}: 🔄 Greedy falló, usando BFS como fallback")
+        print(f"CPU {self.player_id}: Greedy falló, usando BFS como fallback")
         self._move_via_bfs(target)
 
     def _add_to_position_history(self, pos: Position):
