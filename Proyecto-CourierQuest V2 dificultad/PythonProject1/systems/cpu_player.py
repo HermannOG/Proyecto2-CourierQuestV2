@@ -153,10 +153,10 @@ class CPUPlayer:
             # Debug: Verificar el grafo
             self.debug_pathfinding_graph()
 
-            print(f"✓ CPU {self.player_id}: Pathfinding inicializado correctamente")
+            print(f" CPU {self.player_id}: Pathfinding inicializado correctamente")
 
         except Exception as e:
-            print(f"✗ CPU {self.player_id}: Error inicializando pathfinding: {e}")
+            print(f" CPU {self.player_id}: Error inicializando pathfinding: {e}")
             import traceback
             traceback.print_exc()
             self.graph = None
@@ -166,37 +166,33 @@ class CPUPlayer:
     def update(self, dt: float):
         """
         Actualiza el estado del CPU Player cada frame.
-        MEJORADO: Mejor manejo de exhausto y recuperación.
+        Manejo de exhausto y recuperación.
         """
         self.decision_timer += dt
         self.time_since_last_move += dt
 
-        # SIEMPRE actualizar recuperación de stamina
         self._update_stamina_recovery(dt)
 
-        # Verificar si se recuperó del exhausto
         if self.stamina <= 0:
             self.is_exhausted = True
         elif self.stamina >= self.exhaustion_recovery_threshold:
             if self.is_exhausted:
-                print(f"CPU {self.player_id}: ✅ Recuperado ({self.stamina:.1f}/{self.exhaustion_recovery_threshold})")
+                print(f"CPU {self.player_id}: Recuperado ({self.stamina:.1f}/{self.exhaustion_recovery_threshold})")
             self.is_exhausted = False
 
         self._clean_expired_orders()
 
-        # Solo tomar decisiones si NO está exhausto
         if self.decision_timer >= self.decision_interval and not self.is_exhausted:
             self.make_decision(dt)
             self.decision_timer = 0
         elif self.is_exhausted:
-            # Si está exhausto, mostrar mensaje periódicamente
             if not hasattr(self, '_last_exhausted_message'):
                 self._last_exhausted_message = 0
 
             current_time = time.time()
             if current_time - self._last_exhausted_message > 3.0:
                 remaining = self.exhaustion_recovery_threshold - self.stamina
-                print(f"CPU {self.player_id}: ⏸️ EXHAUSTO - Esperando recuperar {remaining:.1f} pts más")
+                print(f"CPU {self.player_id}: EXHAUSTO - Esperando recuperar {remaining:.1f} pts más")
                 self._last_exhausted_message = current_time
 
     def make_decision(self, dt: float):
@@ -206,13 +202,10 @@ class CPUPlayer:
     def execute_move(self, new_pos: Position, dt: float) -> bool:
         """
         Ejecuta un movimiento del CPU hacia una nueva posición.
-        ACTUALIZADO: Ahora actualiza la dirección visual del CPU y consume stamina correctamente.
+        Actualiza la dirección visual del CPU y consume stamina correctamente.
 
-        Args:
             new_pos: Nueva posición a la que moverse
             dt: Delta time (tiempo transcurrido)
-
-        Returns:
             True si el movimiento fue exitoso, False en caso contrario
         """
         import time
@@ -227,16 +220,13 @@ class CPUPlayer:
         if not self._is_valid_move(new_pos):
             return False
 
-        # Verificar que el movimiento es adyacente (solo una casilla)
         distance = abs(new_pos.x - self.pos.x) + abs(new_pos.y - self.pos.y)
         if distance != 1:
             return False
 
-        # CALCULAR LA DIRECCIÓN DEL MOVIMIENTO
         dx = new_pos.x - self.pos.x
         dy = new_pos.y - self.pos.y
 
-        # Actualizar la dirección visual
         if dx > 0:
             self.direction = 'east'
         elif dx < 0:
@@ -246,21 +236,17 @@ class CPUPlayer:
         elif dy < 0:
             self.direction = 'north'
 
-        # CORRECCIÓN: Usar el método que calcula correctamente el costo de stamina
         stamina_cost = self._calculate_stamina_cost(new_pos)
 
-        # Verificar si tiene suficiente stamina
         if self.stamina < stamina_cost:
             self.is_exhausted = True
             return False
 
-        # Ejecutar el movimiento
         self.pos = new_pos
         self.stamina -= stamina_cost
         self.total_distance_traveled += 1
         self.last_move_time = current_time
 
-        # Verificar si quedó exhausto después del movimiento
         if self.stamina <= 0:
             self.is_exhausted = True
             self.stamina = 0
@@ -272,23 +258,19 @@ class CPUPlayer:
         Intenta interactuar en la posición actual (pickup o delivery).
         CORREGIDO: Maneja correctamente el estado de las órdenes.
         """
-        # Caso 1: Entregar pedido si está en dropoff
         if self.inventory:
             for order in list(self.inventory):
                 if self.pos.x == order.dropoff.x and self.pos.y == order.dropoff.y:
                     self._deliver_order(order)
                     return True
 
-        # Caso 2: Recoger pedido si está en pickup
         if self.current_order:
-            # Verificar que la orden sigue disponible
             if self.current_order not in self.game.available_orders.items:
                 print(f"CPU {self.player_id}: Orden {self.current_order.id} ya no está disponible")
                 self.current_order = None
                 self.action_state = "idle"
                 return False
 
-            # Verificar que está en la posición correcta
             if self.pos.x == self.current_order.pickup.x and self.pos.y == self.current_order.pickup.y:
                 current_weight = self.get_current_weight()
                 if current_weight + self.current_order.weight <= self.max_weight:
@@ -297,17 +279,14 @@ class CPUPlayer:
                     self.current_order.accepted_at = self.game.game_time
                     self.inventory.append(self.current_order)
 
-                    # Remover de disponibles
                     if self.current_order in self.game.available_orders.items:
                         self.game.available_orders.items.remove(self.current_order)
 
                     print(f"CPU {self.player_id}: Recogió orden {self.current_order.id}")
 
-                    # Cambiar estado a delivery
                     self.action_state = "moving_to_dropoff"
                     self.current_target = self.current_order.dropoff
 
-                    # Limpiar el camino para recalcular
                     self.current_path = []
                     self.path_index = 0
 
@@ -393,7 +372,7 @@ class CPUPlayer:
     def _calculate_stamina_cost(self, pos: Position) -> float:
         """
         Calcula el costo de stamina para moverse a una posición.
-        CORREGIDO: Ahora usa la MISMA fórmula que el jugador.
+        Usa la misma fórmula que el jugador.
         """
         # Costo base de movimiento
         base_cost = 2.0
@@ -417,7 +396,7 @@ class CPUPlayer:
     def _update_stamina_recovery(self, dt: float):
         """
         Actualiza la recuperación de stamina.
-        MEJORADO: Recuperación rápida en parques, lenta fuera de ellos.
+        Recuperación rápida en parques, lenta fuera de ellos.
         """
         # Verificar posición válida
         if self.pos.y >= len(self.game.tiles) or self.pos.x >= len(self.game.tiles[self.pos.y]):
@@ -433,20 +412,17 @@ class CPUPlayer:
         tile_type = tile_info.get('tipo', '').lower()
         tile_name = tile_info.get('name', '').lower()
 
-        # Verificar si es parque (por tipo o nombre)
         is_park = (tile_type == 'park' or
                    'park' in tile_type or
                    'parque' in tile_name or
                    'parque' in tile_type)
 
         if is_park:
-            # RECUPERACIÓN RÁPIDA EN PARQUES (igual que el jugador)
-            recovery_rate = 15.0  # Puntos por segundo en parques
+            recovery_rate = 15.0
             recovery_amount = recovery_rate * dt
             old_stamina = self.stamina
             self.stamina = min(self.max_stamina, self.stamina + recovery_amount)
 
-            # Log cada segundo aproximadamente
             if not hasattr(self, '_last_recovery_log'):
                 self._last_recovery_log = 0
 
@@ -455,16 +431,14 @@ class CPUPlayer:
             if current_time - self._last_recovery_log >= 1.0:
                 if self.stamina < self.max_stamina:
                     print(
-                        f"CPU {self.player_id}: 🌳 Recuperando en PARQUE (+{recovery_rate}/s): {old_stamina:.1f} → {self.stamina:.1f}")
+                        f"CPU {self.player_id}: Recuperando en PARQUE (+{recovery_rate}/s): {old_stamina:.1f} → {self.stamina:.1f}")
                 self._last_recovery_log = current_time
         else:
-            # Recuperación pasiva LENTA cuando NO está en parque
-            passive_recovery_rate = 2.0  # 2 puntos por segundo (mucho más lento que en parque)
+            passive_recovery_rate = 2.0
             recovery_amount = passive_recovery_rate * dt
             old_stamina = self.stamina
             self.stamina = min(self.max_stamina, self.stamina + recovery_amount)
 
-            # Log ocasional solo si está bajo de stamina
             if not hasattr(self, '_last_passive_log'):
                 self._last_passive_log = 0
 
@@ -490,7 +464,7 @@ class CPUPlayer:
             print(f"CPU {self.player_id}: Orden {order.id} expirada (-6 reputación)")
 
         if self.reputation < 20:
-            print(f"💀 CPU {self.player_id} perdió por baja reputación")
+            print(f" CPU {self.player_id} perdió por baja reputación")
 
     def get_available_orders(self) -> List[Order]:
         """Obtiene las órdenes disponibles para el CPU."""
@@ -513,7 +487,7 @@ class CPUPlayer:
         DEBUG: Verifica que el grafo esté correctamente construido.
         """
         if not self.graph:
-            print(f"⚠️ CPU {self.player_id}: Grafo no inicializado")
+            print(f" CPU {self.player_id}: Grafo no inicializado")
             return
 
         walkable_count = len(self.graph.adjacency_list)
@@ -526,15 +500,15 @@ class CPUPlayer:
                     building_count += 1
 
         print(
-            f"✓ CPU {self.player_id}: Grafo construido - {walkable_count} posiciones transitables, {building_count} edificios/bloqueados")
+            f" CPU {self.player_id}: Grafo construido - {walkable_count} posiciones transitables, {building_count} edificios/bloqueados")
 
         # Verificar que la posición actual está en el grafo
         if self.pos in self.graph.adjacency_list:
             neighbors = self.graph.get_neighbors(self.pos)
             print(
-                f"✓ CPU {self.player_id}: Posición actual ({self.pos.x}, {self.pos.y}) tiene {len(neighbors)} vecinos")
+                f" CPU {self.player_id}: Posición actual ({self.pos.x}, {self.pos.y}) tiene {len(neighbors)} vecinos")
         else:
-            print(f"⚠️ CPU {self.player_id}: Posición actual ({self.pos.x}, {self.pos.y}) NO está en el grafo!")
+            print(f" CPU {self.player_id}: Posición actual ({self.pos.x}, {self.pos.y}) NO está en el grafo!")
 
     def is_low_stamina(self) -> bool:
         """
@@ -549,7 +523,7 @@ class CPUPlayer:
         MEJORADO: Busca diferentes nombres/tipos de parques y es más flexible.
         """
         if not self.game.tiles or not self.game.legend:
-            print(f"CPU {self.player_id}: ⚠️ No hay tiles o legend disponibles")
+            print(f"CPU {self.player_id}: No hay tiles o legend disponibles")
             return None
 
         nearest_park = None
@@ -577,7 +551,6 @@ class CPUPlayer:
                     park_pos = Position(x, y)
                     parks_found += 1
 
-                    # Verificar que la posición del parque es transitable
                     if not self._is_valid_move(park_pos):
                         print(f"CPU {self.player_id}: Parque encontrado en ({x}, {y}) pero NO es transitable")
                         continue
@@ -592,12 +565,12 @@ class CPUPlayer:
 
         if nearest_park:
             print(
-                f"CPU {self.player_id}: ✅ Parque más cercano en ({nearest_park.x}, {nearest_park.y}), distancia: {min_distance}")
+                f"CPU {self.player_id}: Parque más cercano en ({nearest_park.x}, {nearest_park.y}), distancia: {min_distance}")
         else:
             if parks_found > 0:
-                print(f"CPU {self.player_id}: ⚠️ Se encontraron {parks_found} parques pero ninguno es transitable")
+                print(f"CPU {self.player_id}: Se encontraron {parks_found} parques pero ninguno es transitable")
             else:
-                print(f"CPU {self.player_id}: ⚠️ NO hay parques en el mapa")
+                print(f"CPU {self.player_id}: NO hay parques en el mapa")
 
         return nearest_park
 

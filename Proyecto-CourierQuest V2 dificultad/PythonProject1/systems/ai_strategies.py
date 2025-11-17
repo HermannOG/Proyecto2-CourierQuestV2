@@ -1,9 +1,3 @@
-"""
-Estrategias de IA para el CPU Player
-Implementa los tres niveles de dificultad: Fácil, Medio, Difícil
-VERSIÓN FINAL CORREGIDA - Todas las interacciones funcionan correctamente
-"""
-
 import random
 from typing import List, Optional, Tuple
 from collections import deque
@@ -185,14 +179,13 @@ class MediumAI(CPUPlayer):
     def make_decision(self, dt: float):
         """
         Toma de decisiones con evaluación heurística.
-        MODIFICADO: Implementa sistema de descanso automático cuando stamina <= 10.
 
         Comportamiento según instrucciones:
         - Horizonte de anticipación pequeño (2-3 acciones por delante)
         - Evalúa movimientos potenciales con función de puntuación simple:
           score = α*(expected payout) - β*(distance cost) - γ*(weather penalty)
         - Selecciona el movimiento con la puntuación máxima
-        - Cuando stamina <= 10, va automáticamente a un parque y espera
+        - Cuando stamina <= 15, va automáticamente a un parque y espera
         - USA GREEDY como método principal
         """
         self.recalculation_timer += dt
@@ -205,24 +198,19 @@ class MediumAI(CPUPlayer):
             self.needs_rest = True
             self.is_resting_medium = False
             self.rest_target = None
-            # Cancelar cualquier actividad actual
             self.current_order = None
             self.current_target = None
             self.bfs_path = []
             self.bfs_path_index = 0
 
-        # Si necesita descansar, ir al parque
         if self.needs_rest:
-            # Verificar si ya está en un parque
             in_park = self._is_in_park()
 
             if in_park:
-                # Llegó al parque, comenzar a descansar
                 if not self.is_resting_medium:
                     print(f"CPU {self.player_id}: Llegó al parque! Descansando...")
                     self.is_resting_medium = True
 
-                # Esperar hasta que stamina llegue a 100
                 if self.stamina >= 85.0:
                     print(f"CPU {self.player_id}: Stamina recargada completamente! Regresando al trabajo...")
                     self.needs_rest = False
@@ -238,7 +226,7 @@ class MediumAI(CPUPlayer):
                     if current_time - self._last_rest_message >= 3.0:
                         print(f"CPU {self.player_id}: Descansando en parque ({self.stamina:.1f}/100)")
                         self._last_rest_message = current_time
-                    return  # Quedarse quieto mientras descansa
+                    return
             else:
                 # No está en parque, ir al más cercano usando GREEDY
                 if not self.rest_target:
@@ -253,9 +241,7 @@ class MediumAI(CPUPlayer):
                 # Moverse hacia el parque usando GREEDY (con BFS como fallback)
                 if self.rest_target:
                     self._greedy_move_towards_safe(self.rest_target)
-                return  # Solo enfocarse en llegar al parque
-
-        # ===== FLUJO NORMAL DE TRABAJO (cuando tiene stamina > 10) =====
+                return
 
         # PRIMERO: Intentar entregar si tiene paquetes
         if self.inventory:
@@ -323,9 +309,9 @@ class MediumAI(CPUPlayer):
         best_score = float('-inf')
 
         # Pesos para la función de puntuación (α, β, γ)
-        alpha = 1.0  # Peso para el pago esperado
-        beta = 0.5  # Peso para el costo de distancia
-        gamma = 1.0  # Peso para la penalización por clima
+        alpha = 1.0
+        beta = 0.5
+        gamma = 1.0
 
         for order in valid_orders:
             # Componente 1: Pago esperado (expected payout)
@@ -446,14 +432,11 @@ class MediumAI(CPUPlayer):
             if not self._is_valid_move(direction):
                 continue
 
-            # Evaluar con función heurística simple:
-            # score = -distancia (queremos minimizar distancia)
             distance_to_goal = abs(target.x - direction.x) + abs(target.y - direction.y)
 
-            # Componente adicional: penalizar regresar a posiciones recientes
             position_penalty = 0
             if (direction.x, direction.y) in self.position_history[-3:]:
-                position_penalty = 5  # Penalización por visitar posición reciente
+                position_penalty = 5
 
             # Score final: α*(-distance) - β*(weather_penalty) - γ*(position_penalty)
             weather_multiplier = self.game.weather_system.get_stamina_penalty()
@@ -474,9 +457,8 @@ class MediumAI(CPUPlayer):
         """
         Versión segura de movimiento greedy con BFS como fallback.
         Útil cuando se dirige al parque para descansar.
-        USA GREEDY como principal, BFS solo si falla.
+        USA GREEDY como principal.
         """
-        # Intentar movimiento GREEDY primero (método principal)
         best_move = None
         best_score = float('-inf')
 
@@ -504,7 +486,6 @@ class MediumAI(CPUPlayer):
             if success:
                 return
 
-        # FALLBACK: Si el movimiento greedy falló, usar BFS
         print(f"CPU {self.player_id}: Greedy falló, usando BFS como fallback")
         self._move_via_bfs(target)
 
@@ -512,7 +493,6 @@ class MediumAI(CPUPlayer):
         """Añade una posición al historial."""
         self.position_history.append((pos.x, pos.y))
 
-        # Mantener solo las últimas N posiciones
         if len(self.position_history) > self.max_history_length:
             self.position_history.pop(0)
 
@@ -524,12 +504,10 @@ class MediumAI(CPUPlayer):
         if len(self.position_history) < 4:
             return False
 
-        # Contar frecuencia de cada posición
         position_counts = {}
         for pos in self.position_history:
             position_counts[pos] = position_counts.get(pos, 0) + 1
 
-        # Si alguna posición aparece más de 3 veces, está oscilando
         max_count = max(position_counts.values())
         return max_count >= self.oscillation_threshold
 
@@ -546,8 +524,6 @@ class MediumAI(CPUPlayer):
     def _is_in_park(self) -> bool:
         """
         Verifica si el CPU está actualmente en un parque.
-
-        Returns:
             True si está en un parque, False en caso contrario
         """
         if self.pos.y >= len(self.game.tiles) or self.pos.x >= len(self.game.tiles[self.pos.y]):
@@ -605,11 +581,9 @@ class MediumAI(CPUPlayer):
             if not self.bfs_path:
                 return
 
-        # Obtener siguiente posición en el camino
         if self.bfs_path_index < len(self.bfs_path):
             next_pos = self.bfs_path[self.bfs_path_index]
 
-            # Verificar que la posición es válida y adyacente
             if self._is_valid_move(next_pos):
                 distance = abs(next_pos.x - self.pos.x) + abs(next_pos.y - self.pos.y)
                 if distance == 1:
@@ -645,7 +619,6 @@ class MediumAI(CPUPlayer):
         while queue:
             current_pos, path = queue.popleft()
 
-            # Vecinos (4 direcciones)
             neighbors = [
                 Position(current_pos.x + 1, current_pos.y),
                 Position(current_pos.x - 1, current_pos.y),
@@ -654,11 +627,9 @@ class MediumAI(CPUPlayer):
             ]
 
             for neighbor in neighbors:
-                # Verificar si es el objetivo
                 if neighbor.x == goal.x and neighbor.y == goal.y:
                     return path + [neighbor]
 
-                # Verificar si es válido y no visitado
                 if self._is_valid_move(neighbor) and (neighbor.x, neighbor.y) not in visited:
                     visited.add((neighbor.x, neighbor.y))
                     queue.append((neighbor, path + [neighbor]))
@@ -696,7 +667,6 @@ class MediumAI(CPUPlayer):
                 print(f"CPU {self.player_id}: ✓ BFS encontró camino de {len(path)} pasos")
                 return path
 
-            # Explorar vecinos
             for dx, dy in directions:
                 next_pos = Position(current_pos.x + dx, current_pos.y + dy)
                 next_tuple = (next_pos.x, next_pos.y)
@@ -720,7 +690,7 @@ class HardAI(CPUPlayer):
     - A* para pathfinding óptimo (rodea edificios)
     - Replanificación dinámica por clima
     - TSP para secuenciar entregas
-    - MEJORADO: Mejor manejo de colisiones y pathfinding robusto
+    - Manejo de colisiones y pathfinding robusto
     """
 
     def __init__(self, game, player_id: str = "cpu_hard"):
@@ -732,12 +702,8 @@ class HardAI(CPUPlayer):
         self.orders_sequence = []
         self.stuck_counter = 0
         self.max_stuck = 10
-
-        # Parámetros para estrategia de descanso
         self.rest_strategy_threshold = 50.0
         self.min_park_distance_benefit = 3
-
-        # NUEVO: Contador anti-bucle para salidas de parque
         self.park_exit_attempts = 0
         self.max_park_exit_attempts = 5
         self.last_park_position = None
@@ -749,7 +715,6 @@ class HardAI(CPUPlayer):
         """
         self.replan_timer += dt
 
-        # CRÍTICO: Si NO tiene suficiente stamina para moverse, QUEDARSE QUIETO y recuperar
         if self.stamina < 2.1:
             if not hasattr(self, '_last_waiting_log'):
                 self._last_waiting_log = 0
@@ -757,7 +722,7 @@ class HardAI(CPUPlayer):
             import time
             current_time = time.time()
             if current_time - self._last_waiting_log >= 2.0:
-                print(f"CPU {self.player_id}: ⏸️ ESPERANDO recuperar stamina ({self.stamina:.1f}/100)")
+                print(f"CPU {self.player_id}: ️ ESPERANDO recuperar stamina ({self.stamina:.1f}/100)")
                 self._last_waiting_log = current_time
             return
 
@@ -769,12 +734,12 @@ class HardAI(CPUPlayer):
 
         # Si está descansando y todavía no tiene suficiente stamina, seguir descansando
         if self._is_resting and in_park and self.stamina < 100.0:
-            print(f"CPU {self.player_id}: 🌳 Descansando en parque ({self.stamina:.1f}/100)")
+            print(f"CPU {self.player_id}: Descansando en parque ({self.stamina:.1f}/100)")
             return
 
         # Si ya tiene suficiente stamina o no está en parque, dejar de descansar
         if self._is_resting and (self.stamina >= 100.0 or not in_park):
-            print(f"CPU {self.player_id}: ✅ Terminó de descansar ({self.stamina:.1f})! Continuando tareas")
+            print(f"CPU {self.player_id}: Terminó de descansar ({self.stamina:.1f})! Continuando tareas")
             self._is_resting = False
             self.current_path = []
             self.path_index = 0
@@ -797,10 +762,10 @@ class HardAI(CPUPlayer):
                     self._follow_current_path()
                     return
                 else:
-                    print(f"CPU {self.player_id}: ⚠️ Stamina crítica pero sin parques ({self.stamina:.1f})")
+                    print(f"CPU {self.player_id}: ️ Stamina crítica pero sin parques ({self.stamina:.1f})")
                     return
             else:
-                print(f"CPU {self.player_id}: 🌳 Llegó al parque, iniciando descanso ({self.stamina:.1f})")
+                print(f"CPU {self.player_id}: Llegó al parque, iniciando descanso ({self.stamina:.1f})")
                 self._is_resting = True
                 self.current_path = []
                 self.path_index = 0
@@ -823,19 +788,15 @@ class HardAI(CPUPlayer):
                         self.path_index = 0
                         self.current_order = None
 
-                        # Después de entregar, si todavía tiene paquetes, ir al siguiente
                         if self.inventory:
                             next_dropoff = self.inventory[0].dropoff
                             print(f"CPU {self.player_id}: Siguiente entrega en ({next_dropoff.x}, {next_dropoff.y})")
                             self._calculate_optimal_path(next_dropoff)
                         return
                 else:
-                    # ===== RECOLECCIÓN OPORTUNISTA =====
-                    # Antes de moverse, verificar si hay paquetes cercanos
                     if self._check_opportunistic_pickup():
-                        return  # Si recogió o está recogiendo algo, salir
+                        return
 
-                    # Ir a la entrega - asegurarse de tener ruta
                     if not self.current_target or \
                             self.current_target.x != order.dropoff.x or \
                             self.current_target.y != order.dropoff.y:
@@ -909,9 +870,8 @@ class HardAI(CPUPlayer):
 
     def _is_in_park(self) -> bool:
         """
-        NUEVO: Verifica si el CPU está actualmente en un parque.
+        Verifica si el CPU está actualmente en un parque.
 
-        Returns:
             True si está en un parque, False en caso contrario
         """
         if self.pos.y >= len(self.game.tiles) or self.pos.x >= len(self.game.tiles[self.pos.y]):
@@ -934,7 +894,7 @@ class HardAI(CPUPlayer):
 
     def _find_short_alternate_path(self, target: Position, max_depth: int = 8) -> Optional[List[Position]]:
         """
-        NUEVO: Encuentra un camino alternativo corto usando BFS limitado.
+        Encuentra un camino alternativo corto usando BFS limitado.
         Útil cuando el camino directo está bloqueado pero hay rutas cercanas.
         """
         from collections import deque
@@ -956,20 +916,16 @@ class HardAI(CPUPlayer):
         while queue:
             current_pos, path = queue.popleft()
 
-            # Si el camino es muy largo, detenerse
             if len(path) > max_depth:
                 continue
 
-            # Si llegamos al objetivo
             if current_pos.x == target.x and current_pos.y == target.y:
                 return path
 
-            # Si estamos muy cerca del objetivo, también retornar el camino
             distance_to_target = abs(target.x - current_pos.x) + abs(target.y - current_pos.y)
             if distance_to_target <= 2 and len(path) > 1:
                 return path
 
-            # Explorar vecinos
             for dx, dy in directions:
                 next_pos = Position(current_pos.x + dx, current_pos.y + dy)
                 next_tuple = (next_pos.x, next_pos.y)
@@ -984,25 +940,20 @@ class HardAI(CPUPlayer):
     def _should_rest_strategically(self) -> bool:
         """
         Determina si es estratégicamente beneficioso descansar ahora.
-        AJUSTADO: Solo retorna True si stamina < 15 (crítico).
+        Solo retorna True si stamina < 15 (crítico).
         """
-        # Solo descansar estratégicamente si está REALMENTE bajo
         if self.stamina >= 15.0:
             return False
 
-        # Si no hay parques cercanos, no tiene sentido
         nearest_park = self.find_nearest_park()
         if not nearest_park:
             return False
 
-        # Calcular distancia al parque
         distance_to_park = abs(self.pos.x - nearest_park.x) + abs(self.pos.y - nearest_park.y)
 
-        # Si el parque está muy lejos y tiene poca stamina, ir de todas formas
         if self.stamina < 10.0:
             return True
 
-        # Si tiene orden actual, considerar si vale la pena ir al parque
         if self.current_order:
             distance_to_pickup = abs(self.pos.x - self.current_order.pickup.x) + \
                                  abs(self.pos.y - self.current_order.pickup.y)
@@ -1015,7 +966,7 @@ class HardAI(CPUPlayer):
 
     def _estimate_stamina_needed_for_current_orders(self) -> float:
         """
-        NUEVO: Estima cuánta stamina se necesita para completar las órdenes actuales.
+        Estima cuánta stamina se necesita para completar las órdenes actuales.
         """
         stamina_estimate = 0.0
 
@@ -1042,17 +993,17 @@ class HardAI(CPUPlayer):
     def _calculate_optimal_path(self, target: Position):
         """
         Calcula ruta óptima con A*.
-        MEJORADO: Mejor validación, logging y manejo de targets inválidos.
+        Mejor validación, logging y manejo de targets inválidos.
         """
         if not self.pathfinder:
-            print(f"CPU {self.player_id}: ⚠️ Pathfinder no disponible, usando greedy")
+            print(f"CPU {self.player_id}: Pathfinder no disponible, usando greedy")
             self.current_target = target
             self._greedy_move_towards_safe(target)
             return
 
         # DEBUG: Verificar posición actual
         if not self._is_valid_move(self.pos):
-            print(f"CPU {self.player_id}: ⚠️ ERROR - Posición actual ({self.pos.x}, {self.pos.y}) no es válida!")
+            print(f"CPU {self.player_id}: ERROR - Posición actual ({self.pos.x}, {self.pos.y}) no es válida!")
             return
 
         # VALIDACIÓN 1: Si el target no es walkable, encontrar posición cercana
@@ -1070,14 +1021,13 @@ class HardAI(CPUPlayer):
 
             if walkable_target:
                 target = walkable_target
-                print(f"CPU {self.player_id}: ✓ Usando target ajustado ({target.x}, {target.y})")
+                print(f"CPU {self.player_id}: Usando target ajustado ({target.x}, {target.y})")
             else:
-                print(f"CPU {self.player_id}: ✗ No se encontró posición caminable cercana")
+                print(f"CPU {self.player_id}: No se encontró posición caminable cercana")
                 self.current_target = target
                 self._greedy_move_towards_safe(target)
                 return
 
-        # VALIDACIÓN 2: Si ya está en el target
         if self.pos.x == target.x and self.pos.y == target.y:
             self.current_path = []
             self.path_index = 0
@@ -1098,9 +1048,9 @@ class HardAI(CPUPlayer):
                 self.path_index = 0
                 self.current_target = target
                 self.stuck_counter = 0
-                print(f"CPU {self.player_id}: ✓ Ruta A* exitosa ({len(self.current_path)} pasos)")
+                print(f"CPU {self.player_id}: Ruta A* exitosa ({len(self.current_path)} pasos)")
             else:
-                print(f"CPU {self.player_id}: ✗ Camino A* inválido, intentando Dijkstra")
+                print(f"CPU {self.player_id}: Camino A* inválido, intentando Dijkstra")
                 path = self.pathfinder.dijkstra(self.pos, target, weather_penalty)
 
                 if path and len(path) > 1 and self._validate_path(path):
@@ -1108,14 +1058,14 @@ class HardAI(CPUPlayer):
                     self.path_index = 0
                     self.current_target = target
                     self.stuck_counter = 0
-                    print(f"CPU {self.player_id}: ✓ Ruta Dijkstra exitosa ({len(self.current_path)} pasos)")
+                    print(f"CPU {self.player_id}: Ruta Dijkstra exitosa ({len(self.current_path)} pasos)")
                 else:
-                    print(f"CPU {self.player_id}: ✗ Dijkstra también falló, usando greedy")
+                    print(f"CPU {self.player_id}: Dijkstra también falló, usando greedy")
                     self.current_path = []
                     self.current_target = target
                     self._greedy_move_towards_safe(target)
         else:
-            print(f"CPU {self.player_id}: ✗ A* no encontró camino, usando greedy")
+            print(f"CPU {self.player_id}: A* no encontró camino, usando greedy")
             self.current_path = []
             self.current_target = target
             self._greedy_move_towards_safe(target)
@@ -1123,18 +1073,16 @@ class HardAI(CPUPlayer):
     def _validate_path(self, path: List[Position]) -> bool:
         """
         Valida que un camino no tenga saltos ni posiciones inválidas.
-        MEJORADO: Validación más estricta de adyacencia y walkability.
+        Validación más estricta de adyacencia y walkability.
         """
         if not path or len(path) == 0:
             return False
 
-        # Validar que todas las posiciones son transitables
         for pos in path:
             if not self._is_valid_move(pos):
                 print(f"CPU {self.player_id}: Camino contiene posición no transitable: ({pos.x}, {pos.y})")
                 return False
 
-        # Validar que cada paso es adyacente al siguiente (solo movimiento ortogonal)
         for i in range(len(path) - 1):
             current = path[i]
             next_pos = path[i + 1]
@@ -1142,7 +1090,6 @@ class HardAI(CPUPlayer):
             dx = abs(next_pos.x - current.x)
             dy = abs(next_pos.y - current.y)
 
-            # Movimiento válido: exactamente 1 casilla en una dirección ortogonal
             is_orthogonal = (dx == 1 and dy == 0) or (dx == 0 and dy == 1)
 
             if not is_orthogonal:
@@ -1155,7 +1102,7 @@ class HardAI(CPUPlayer):
     def _follow_current_path(self):
         """
         Sigue el camino planificado con validación robusta.
-        MEJORADO: Mejor manejo cuando el camino se vuelve inválido y reintentos.
+        Mejor manejo cuando el camino se vuelve inválido y reintentos.
         """
         if not self.current_path or self.path_index >= len(self.current_path):
             self.current_path = []
@@ -1170,7 +1117,6 @@ class HardAI(CPUPlayer):
             self.stuck_counter = 0
             return
 
-        # VALIDACIÓN: Verificar que el próximo movimiento es adyacente
         distance = abs(next_pos.x - self.pos.x) + abs(next_pos.y - self.pos.y)
         if distance > 1:
             print(f"CPU {self.player_id}: Camino con salto inválido detectado (distancia={distance}), replanificando")
@@ -1181,7 +1127,6 @@ class HardAI(CPUPlayer):
                 self._calculate_optimal_path(self.current_target)
             return
 
-        # VALIDACIÓN: Re-verificar que la posición es válida antes de moverse
         if not self._is_valid_move(next_pos):
             print(f"CPU {self.player_id}: Posición del camino bloqueada ({next_pos.x}, {next_pos.y}), replanificando")
             self.current_path = []
@@ -1191,14 +1136,12 @@ class HardAI(CPUPlayer):
                 self._calculate_optimal_path(self.current_target)
             return
 
-        # Intentar moverse
         success = self.execute_move(next_pos, 0.016)
 
         if success:
             self.path_index += 1
             self.stuck_counter = 0
 
-            # Si terminó el camino
             if self.path_index >= len(self.current_path):
                 self.current_path = []
                 self.path_index = 0
@@ -1218,7 +1161,7 @@ class HardAI(CPUPlayer):
     def _plan_rest_route(self):
         """
         Planifica ruta al parque con A*.
-        MEJORADO: Mejor manejo de errores y fallback.
+        Mejor manejo de errores y fallback.
         """
         nearest_park = self.find_nearest_park()
 
@@ -1265,7 +1208,6 @@ class HardAI(CPUPlayer):
         valid_orders.sort(key=lambda x: x[1], reverse=True)
         top_orders = [order for order, score in valid_orders[:min(5, len(valid_orders))]]
 
-        # CORREGIDO: Usar _plan_delivery_sequence en lugar de _optimize_delivery_sequence
         if self.tsp_solver and len(top_orders) > 1:
             optimized_sequence = self._plan_delivery_sequence(top_orders)
             if optimized_sequence:
@@ -1282,11 +1224,7 @@ class HardAI(CPUPlayer):
         Planifica la secuencia óptima de entregas usando TSP aproximado.
         Utiliza el algoritmo Nearest Neighbor para resolver una aproximación
         del problema del viajante (Traveling Salesman Problem).
-
-        Args:
             orders: Lista de órdenes a secuenciar
-
-        Returns:
             Lista de órdenes ordenadas según la ruta óptima aproximada
 
         Algoritmo:
@@ -1294,10 +1232,6 @@ class HardAI(CPUPlayer):
             - Comienza desde la posición actual
             - En cada paso, elige el pickup más cercano no visitado
             - Continúa hasta visitar todos los pickups
-
-        Nota:
-            Esta es una aproximación heurística, no garantiza la solución óptima
-            pero es computacionalmente eficiente.
         """
         if not orders or not self.tsp_solver:
             return orders
@@ -1334,7 +1268,7 @@ class HardAI(CPUPlayer):
     def _calculate_order_score(self, order: Order) -> float:
         """
         Calcula score de orden.
-        MEJORADO: Considera si tendrá suficiente stamina para completarla.
+        Considera si tendrá suficiente stamina para completarla.
         """
         alpha = 1.5
         payout_score = alpha * order.payout
@@ -1364,14 +1298,10 @@ class HardAI(CPUPlayer):
 
     def _find_short_alternate_path(self, target: Position, max_depth: int = 8) -> Optional[List[Position]]:
         """
-        NUEVO: Encuentra un camino alternativo corto usando BFS limitado.
+        Encuentra un camino alternativo corto usando BFS limitado.
         Útil cuando el camino directo está bloqueado pero hay rutas cercanas.
-
-        Args:
             target: Posición objetivo
             max_depth: Profundidad máxima de búsqueda (número de pasos)
-
-        Returns:
             Lista de posiciones formando el camino, o None si no se encuentra
         """
         from collections import deque
@@ -1393,20 +1323,16 @@ class HardAI(CPUPlayer):
         while queue:
             current_pos, path = queue.popleft()
 
-            # Si el camino es muy largo, detenerse
             if len(path) > max_depth:
                 continue
 
-            # Si llegamos al objetivo
             if current_pos.x == target.x and current_pos.y == target.y:
                 return path
 
-            # Si estamos muy cerca del objetivo, también retornar el camino
             distance_to_target = abs(target.x - current_pos.x) + abs(target.y - current_pos.y)
             if distance_to_target <= 2:
                 return path
 
-            # Explorar vecinos
             for direction in directions:
                 next_pos = Position(current_pos.x + direction.x, current_pos.y + direction.y)
 
@@ -1419,7 +1345,7 @@ class HardAI(CPUPlayer):
 
     def _greedy_move_towards_safe(self, target: Position):
         """
-        MEJORADO: Movimiento greedy con mejor evitación de obstáculos.
+        Movimiento greedy con mejor evitación de obstáculos.
         Usa BFS limitado para encontrar rutas alternativas cuando está bloqueado.
         """
         current_distance = abs(target.x - self.pos.x) + abs(target.y - self.pos.y)
@@ -1442,9 +1368,6 @@ class HardAI(CPUPlayer):
 
             new_distance = abs(target.x - direction.x) + abs(target.y - direction.y)
 
-            # Calcular score considerando:
-            # 1. Reducción de distancia (más importante)
-            # 2. Seguridad de la posición
             distance_improvement = current_distance - new_distance
             safety_bonus = self._calculate_safety_score(direction)
 
@@ -1458,13 +1381,10 @@ class HardAI(CPUPlayer):
             self.stuck_counter += 1
             return
 
-        # Ordenar por score descendente
         moves.sort(key=lambda x: x[1], reverse=True)
 
-        # Intentar el mejor movimiento
         best_move, best_score, new_distance = moves[0]
 
-        # Si el mejor movimiento mejora la distancia
         if new_distance < current_distance:
             success = self.execute_move(best_move, 0.016)
             if success:
@@ -1480,7 +1400,6 @@ class HardAI(CPUPlayer):
                             self.stuck_counter = 0
                             return
 
-        # Si ningún movimiento mejora directamente, usar BFS corto
         print(f"CPU {self.player_id}: Bloqueado directamente, buscando ruta alternativa con BFS")
 
         try:
@@ -1499,14 +1418,12 @@ class HardAI(CPUPlayer):
             print(f"CPU {self.player_id}: Error en BFS alternativo: {e}")
             self.stuck_counter += 1
 
-        # Como último recurso, intentar cualquier movimiento válido
         print(f"CPU {self.player_id}: Último recurso - intentando cualquier movimiento válido")
         for move, _, _ in moves:
             if self.execute_move(move, 0.016):
                 self.stuck_counter = 0
                 return
 
-        # Si realmente no puede moverse
         self.stuck_counter += 1
         print(f"CPU {self.player_id}: Completamente atascado (contador: {self.stuck_counter})")
 
@@ -1547,43 +1464,34 @@ class HardAI(CPUPlayer):
         Returns:
             True si recogió un paquete, False si no
         """
-        # Solo buscar oportunidades si tiene inventario (está en proceso de entrega)
         if not self.inventory:
             return False
 
-        # Verificar capacidad disponible
         current_weight = self.get_current_weight()
         if current_weight >= self.max_weight:
             return False
 
-        # Buscar paquetes disponibles en rango de 1 casilla
         available_orders = self.get_available_orders()
 
         for order in available_orders:
-            # Calcular distancia al pickup
             distance = abs(self.pos.x - order.pickup.x) + abs(self.pos.y - order.pickup.y)
 
-            # Si está a 1 casilla o menos y tiene capacidad
             if distance <= 1 and self.has_capacity_for(order):
-                # Verificar si vale la pena (score básico)
                 score = self._calculate_order_score(order)
 
-                # Solo recoger si tiene un score razonable (evitar paquetes muy malos)
                 if score > 0:
-                    print(f"CPU {self.player_id}: 🎯 ¡Oportunidad! Paquete {order.id} a {distance} casilla(s)")
+                    print(f"CPU {self.player_id}: ¡Oportunidad! Paquete {order.id} a {distance} casilla(s)")
 
-                    # Si está exactamente en el pickup, recoger inmediatamente
                     if distance == 0:
                         # Guardar el estado actual
                         previous_order = self.current_order
                         previous_target = self.current_target
 
-                        # Temporalmente hacer esta orden la actual para poder recogerla
                         self.current_order = order
                         picked_up = self.interact_at_position()
 
                         if picked_up:
-                            print(f"CPU {self.player_id}: ✅ Recogió paquete oportunista {order.id}")
+                            print(f"CPU {self.player_id}: Recogió paquete oportunista {order.id}")
                             # Restaurar la orden anterior como objetivo principal
                             self.current_order = previous_order
                             self.current_target = previous_target
@@ -1596,17 +1504,14 @@ class HardAI(CPUPlayer):
 
                     # Si está a 1 casilla, hacer un desvío rápido
                     elif distance == 1:
-                        print(f"CPU {self.player_id}: 📦 Haciendo desvío de 1 casilla para recoger {order.id}")
+                        print(f"CPU {self.player_id}: Haciendo desvío de 1 casilla para recoger {order.id}")
 
-                        # Guardar destino actual
                         if not hasattr(self, '_saved_delivery_target'):
                             self._saved_delivery_target = None
 
-                        # Si está entregando, guardar el destino de entrega
                         if self.inventory and len(self.inventory) > 0:
                             self._saved_delivery_target = self.inventory[0].dropoff
 
-                        # Ir a recoger el paquete oportunista
                         self.current_order = order
                         self._calculate_optimal_path(order.pickup)
                         self.action_state = "opportunistic_pickup"
@@ -1618,13 +1523,11 @@ class HardAI(CPUPlayer):
         """
         Maneja el estado especial de recolección oportunista.
 
-        Returns:
             True si está en modo oportunista y debe continuar, False si terminó
         """
         if not hasattr(self, 'action_state') or self.action_state != "opportunistic_pickup":
             return False
 
-        # Si llegó al pickup oportunista
         if self.current_order and \
                 self.pos.x == self.current_order.pickup.x and \
                 self.pos.y == self.current_order.pickup.y:
@@ -1640,7 +1543,7 @@ class HardAI(CPUPlayer):
 
                 # Recalcular ruta al dropoff original
                 if hasattr(self, '_saved_delivery_target') and self._saved_delivery_target:
-                    print(f"CPU {self.player_id}: 🔄 Regresando a entrega original")
+                    print(f"CPU {self.player_id}: Regresando a entrega original")
                     self._calculate_optimal_path(self._saved_delivery_target)
                     self._saved_delivery_target = None
                 elif self.inventory:

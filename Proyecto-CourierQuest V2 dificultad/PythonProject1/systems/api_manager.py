@@ -201,7 +201,7 @@ class TigerAPIManager:
                     )
                     orders.append(order)
                 except Exception as e:
-                    print(f"⚠️ Error procesando trabajo {i}: {e}")
+                    print(f" Error procesando trabajo {i}: {e}")
                     continue
 
             return orders if orders else self._get_fallback_orders()

@@ -25,18 +25,15 @@ class RobustFileManager:
         """
         Guarda el juego en un slot específico con validación completa.
 
-        Args:
             game_state: Estado actual del juego
             slot: Número de slot (1-3 recomendado)
-
-        Returns:
             True si se guardó correctamente, False en caso contrario
         """
         try:
-            # ✅ Crear archivo de guardado con slot
+
             save_file = f"saves/slot{slot}.sav"
 
-            # ✅ Crear datos de guardado con metadatos
+
             save_data = {
                 'version': '3.2_slots_fixed',
                 'timestamp': time.time(),
@@ -59,21 +56,20 @@ class RobustFileManager:
                     # Mantener solo los últimos 3 backups por slot
                     self._cleanup_old_backups(slot, max_backups=3)
                 except Exception as e:
-                    print(f"⚠️ No se pudo crear backup: {e}")
+                    print(f" No se pudo crear backup: {e}")
 
-            # ✅ Guardar con pickle de alta compatibilidad
             with open(save_file, 'wb') as f:
                 pickle.dump(save_data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-            print(f"💾 Juego guardado en slot {slot}")
-            print(f"   📍 Posición: ({game_state.player_pos.x}, {game_state.player_pos.y})")
-            print(f"   💰 Dinero: ${game_state.money}/{game_state.goal}")
-            print(f"   ⭐ Reputación: {game_state.reputation}/100")
+            print(f" Juego guardado en slot {slot}")
+            print(f"   Posición: ({game_state.player_pos.x}, {game_state.player_pos.y})")
+            print(f"   Dinero: ${game_state.money}/{game_state.goal}")
+            print(f"   Reputación: {game_state.reputation}/100")
 
             return True
 
         except Exception as e:
-            print(f"❌ Error guardando en slot {slot}: {e}")
+            print(f" Error guardando en slot {slot}: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -91,49 +87,45 @@ class RobustFileManager:
         save_file = f"saves/slot{slot}.sav"
 
         if not os.path.exists(save_file):
-            print(f"⚠️ No existe guardado en slot {slot}")
+            print(f"️ No existe guardado en slot {slot}")
             return None
 
         try:
-            # ✅ Cargar archivo
             with open(save_file, 'rb') as f:
                 save_data = pickle.load(f)
 
-            # ✅ Validar estructura
             if not isinstance(save_data, dict):
-                print(f"❌ Formato inválido en slot {slot}")
+                print(f" Formato inválido en slot {slot}")
                 return None
 
             if 'game_state' not in save_data:
-                print(f"❌ Datos de juego no encontrados en slot {slot}")
+                print(f" Datos de juego no encontrados en slot {slot}")
                 return None
 
             game_state = save_data['game_state']
 
-            # ✅ Validar que tenga los atributos necesarios
             required_attrs = ['city_width', 'city_height', 'player_pos', 'money', 'goal']
             for attr in required_attrs:
                 if not hasattr(game_state, attr):
-                    print(f"❌ Atributo faltante: {attr}")
+                    print(f" Atributo faltante: {attr}")
                     return None
 
-            print(f"📂 Juego cargado desde slot {slot}")
+            print(f" Juego cargado desde slot {slot}")
 
             # Mostrar información del guardado
             if 'metadata' in save_data:
                 meta = save_data['metadata']
-                print(f"   📅 Guardado: {meta.get('saved_at', 'Desconocido')[:19]}")
-                print(f"   🏙️ Ciudad: {meta.get('city_info', 'Desconocida')}")
-                print(f"   📊 Progreso: {meta.get('completion_percentage', 0):.1f}%")
+                print(f"   Guardado: {meta.get('saved_at', 'Desconocido')[:19]}")
+                print(f"   Ciudad: {meta.get('city_info', 'Desconocida')}")
+                print(f"   Progreso: {meta.get('completion_percentage', 0):.1f}%")
 
             return game_state
 
         except Exception as e:
-            print(f"❌ Error cargando slot {slot}: {e}")
+            print(f" Error cargando slot {slot}: {e}")
             import traceback
             traceback.print_exc()
 
-            # ✅ Intentar recuperar desde backup
             return self._try_restore_from_backup(slot)
 
     def _try_restore_from_backup(self, slot: int) -> Optional[GameState]:
@@ -151,17 +143,17 @@ class RobustFileManager:
             backup_files.sort(reverse=True)
             latest_backup = os.path.join('backups', backup_files[0])
 
-            print(f"🔄 Intentando restaurar desde backup: {backup_files[0]}")
+            print(f" Intentando restaurar desde backup: {backup_files[0]}")
 
             with open(latest_backup, 'rb') as f:
                 save_data = pickle.load(f)
 
             if isinstance(save_data, dict) and 'game_state' in save_data:
-                print("✅ Restauración desde backup exitosa")
+                print(" Restauración desde backup exitosa")
                 return save_data['game_state']
 
         except Exception as e:
-            print(f"❌ No se pudo restaurar desde backup: {e}")
+            print(f" No se pudo restaurar desde backup: {e}")
 
         return None
 
@@ -235,11 +227,11 @@ class RobustFileManager:
         try:
             if os.path.exists(save_file):
                 os.remove(save_file)
-                print(f"🗑️ Guardado en slot {slot} eliminado")
+                print(f" Guardado en slot {slot} eliminado")
                 return True
             return False
         except Exception as e:
-            print(f"❌ Error eliminando slot {slot}: {e}")
+            print(f" Error eliminando slot {slot}: {e}")
             return False
 
     def load_scores(self) -> List[Dict[str, Any]]:
