@@ -161,21 +161,98 @@ class MediumAI(CPUPlayer):
         self.recalculation_interval = 2.0
         self.recalculation_timer = 0
 
-        # Para seguir caminos BFS
+        # Para seguir caminos BFS (SOLO cuando se queda pegado)
         self.bfs_path = []
         self.bfs_path_index = 0
 
-        # NUEVO: Detección de oscilación/bucle
+        # Detección de oscilación/bucle
         self.position_history = []
         self.max_history_length = 8
-        self.oscillation_threshold = 3  # Si visita la misma posición 3 veces
+        self.oscillation_threshold = 3
         self.last_distance_to_target = None
         self.no_progress_counter = 0
         self.max_no_progress = 4
 
+        # NUEVO: Sistema de descanso automático cuando stamina <= 10
+        self.needs_rest = False  # Se activa cuando stamina llega a 10 o menos
+        self.is_resting_medium = False  # Indica que está descansando en el parque
+        self.rest_target = None  # Parque objetivo para descansar
+
     def make_decision(self, dt: float):
-        """Toma de decisiones con evaluación heurística - VERSIÓN FINAL CORREGIDA."""
+        """
+        Toma de decisiones con evaluación heurística.
+        MODIFICADO: Implementa sistema de descanso automático cuando stamina <= 10.
+
+        Comportamiento según instrucciones:
+        - Horizonte de anticipación pequeño (2-3 acciones por delante)
+        - Evalúa movimientos potenciales con función de puntuación simple:
+          score = α*(expected payout) - β*(distance cost) - γ*(weather penalty)
+        - Selecciona el movimiento con la puntuación máxima
+        - NUEVO: Cuando stamina <= 10, va automáticamente a un parque y espera
+          hasta que se recargue a 100
+        - USA GREEDY como método principal, BFS solo cuando se queda pegado
+        """
         self.recalculation_timer += dt
+
+        # ===== SISTEMA DE DESCANSO CUANDO STAMINA <= 10 =====
+
+        # Verificar si necesita descansar (stamina llegó a 10 o menos)
+        if self.stamina <= 10.0 and not self.needs_rest:
+            print(f"CPU {self.player_id}: STAMINA BAJA ({self.stamina:.1f})! Buscando parque para descansar...")
+            self.needs_rest = True
+            self.is_resting_medium = False
+            self.rest_target = None
+            # Cancelar cualquier actividad actual
+            self.current_order = None
+            self.current_target = None
+            self.bfs_path = []
+            self.bfs_path_index = 0
+
+        # Si necesita descansar, ir al parque
+        if self.needs_rest:
+            # Verificar si ya está en un parque
+            in_park = self._is_in_park()
+
+            if in_park:
+                # Llegó al parque, comenzar a descansar
+                if not self.is_resting_medium:
+                    print(f"CPU {self.player_id}: Llegó al parque! Descansando...")
+                    self.is_resting_medium = True
+
+                # Esperar hasta que stamina llegue a 100
+                if self.stamina >= 80.0:
+                    print(f"CPU {self.player_id}: ✅ Stamina recargada completamente! Regresando al trabajo...")
+                    self.needs_rest = False
+                    self.is_resting_medium = False
+                    self.rest_target = None
+                else:
+                    # Mostrar progreso cada cierto tiempo
+                    if not hasattr(self, '_last_rest_message'):
+                        self._last_rest_message = 0
+
+                    import time
+                    current_time = time.time()
+                    if current_time - self._last_rest_message >= 3.0:
+                        print(f"CPU {self.player_id}: 🌳 Descansando en parque ({self.stamina:.1f}/100)")
+                        self._last_rest_message = current_time
+                    return  # Quedarse quieto mientras descansa
+            else:
+                # No está en parque, ir al más cercano usando GREEDY
+                if not self.rest_target:
+                    self.rest_target = self.find_nearest_park()
+                    if self.rest_target:
+                        print(
+                            f"CPU {self.player_id}: 🏃 Dirigiéndose al parque en ({self.rest_target.x}, {self.rest_target.y})")
+                    else:
+                        print(f"CPU {self.player_id}: ⚠️ No hay parques disponibles! Esperando recuperación natural...")
+                        return
+
+                # Moverse hacia el parque usando GREEDY (con BFS como fallback)
+                if self.rest_target:
+                    self._greedy_move_towards_safe(self.rest_target)
+                return  # Solo enfocarse en llegar al parque
+
+        # ===== FLUJO NORMAL DE TRABAJO (cuando tiene stamina > 10) =====
 
         # PRIMERO: Intentar entregar si tiene paquetes
         if self.inventory:
@@ -194,7 +271,7 @@ class MediumAI(CPUPlayer):
                     if picked_up:
                         return  # Salir después de recoger para procesar el nuevo estado
                 else:
-                    # Moverse hacia el pickup
+                    # Moverse hacia el pickup usando GREEDY (método principal)
                     self._greedy_move_towards(self.current_order.pickup)
                 return  # Salir si está trabajando en pickup
 
@@ -206,41 +283,77 @@ class MediumAI(CPUPlayer):
                     if delivered:
                         return  # Salir después de entregar
                 else:
-                    # Moverse hacia el dropoff
+                    # Moverse hacia el dropoff usando GREEDY (método principal)
                     self._greedy_move_towards(order.dropoff)
                 return  # Salir si está trabajando en dropoff
 
-        # TERCERO: Evaluar y elegir la mejor orden
+        # TERCERO: Evaluar y elegir la mejor orden usando heurística
         if self.recalculation_timer >= self.recalculation_interval:
             self._evaluate_and_choose_best_order()
             self.recalculation_timer = 0
 
     def _evaluate_and_choose_best_order(self):
-        """Evalúa y elige la mejor orden según score."""
+        """
+        Evalúa y elige la mejor orden según score.
+
+        Implementa la función de puntuación simple según instrucciones:
+        score = α*(expected payout) - β*(distance cost) - γ*(weather penalty)
+
+        Mantiene un horizonte de anticipación pequeño (2-3 acciones por delante).
+        """
         available = self.get_available_orders()
 
         if not available:
             return
 
-        best_order = None
-        best_score = -float('inf')
+        # Filtrar por capacidad
         current_weight = self.get_current_weight()
+        valid_orders = [
+            order for order in available
+            if current_weight + order.weight <= self.max_weight
+        ]
 
-        for order in available:
-            if current_weight + order.weight > self.max_weight:
-                continue
+        if not valid_orders:
+            return
 
-            score = self._calculate_order_score(order)
+        best_order = None
+        best_score = float('-inf')
 
+        # Pesos para la función de puntuación (α, β, γ)
+        alpha = 1.0  # Peso para el pago esperado
+        beta = 0.5  # Peso para el costo de distancia
+        gamma = 1.0  # Peso para la penalización por clima
+
+        for order in valid_orders:
+            # Componente 1: Pago esperado (expected payout)
+            expected_payout = order.payout
+
+            # Componente 2: Costo de distancia (distance cost)
+            # Anticipación limitada: solo mira 2-3 pasos adelante
+            distance_to_pickup = abs(self.pos.x - order.pickup.x) + abs(self.pos.y - order.pickup.y)
+            distance_pickup_to_dropoff = abs(order.pickup.x - order.dropoff.x) + abs(order.pickup.y - order.dropoff.y)
+            total_distance = distance_to_pickup + distance_pickup_to_dropoff
+            distance_cost = total_distance
+
+            # Componente 3: Penalización por clima (weather penalty)
+            weather_penalty = self.game.weather_system.get_stamina_penalty()
+            # Penalización mayor si el clima es adverso
+            weather_cost = (weather_penalty - 1.0) * total_distance
+
+            # Calcular score según la fórmula
+            # score = α*(expected payout) - β*(distance cost) - γ*(weather penalty)
+            score = (alpha * expected_payout) - (beta * distance_cost) - (gamma * weather_cost)
+
+            # Seleccionar el movimiento con la puntuación máxima
             if score > best_score:
                 best_score = score
                 best_order = order
 
+        # Asignar la mejor orden
         if best_order:
             self.current_order = best_order
             self.current_target = best_order.pickup
             self.action_state = "moving_to_pickup"
-            print(f"CPU {self.player_id}: Eligió orden {best_order.id} (Score: {best_score:.2f})")
 
     def _calculate_order_score(self, order: Order) -> float:
         """Calcula score: α*payout - β*distance - γ*weather_penalty"""
@@ -260,90 +373,65 @@ class MediumAI(CPUPlayer):
 
         return total_score
 
-    def _greedy_move_towards_safe(self, target: Position):
+    def _greedy_move_towards(self, target: Position):
         """
-        MEJORADO: Movimiento greedy con detección de oscilación y BFS.
-        Detecta cuando el CPU está oscilando entre las mismas posiciones.
+        Movimiento GREEDY hacia el objetivo (MÉTODO PRINCIPAL).
+        Evalúa movimientos con heurística simple: minimizar distancia Manhattan.
+        Mantiene el horizonte de anticipación pequeño: evalúa solo movimientos inmediatos.
+
+        BFS solo se usa como FALLBACK cuando detecta oscilación o falta de progreso.
         """
-        # Si tenemos un camino BFS activo, seguirlo
-        if self.bfs_path and self.bfs_path_index < len(self.bfs_path):
-            next_pos = self.bfs_path[self.bfs_path_index]
+        # Reiniciar detección de oscilación si cambió el objetivo
+        if not self.current_target or \
+                (self.current_target.x != target.x or self.current_target.y != target.y):
+            self.position_history = []
+            self.no_progress_counter = 0
+            self.last_distance_to_target = None
 
-            # Verificar que todavía es válido
-            if self._is_valid_move(next_pos):
-                success = self.execute_move(next_pos, 0.016)
-                if success:
-                    self.bfs_path_index += 1
-                    self._add_to_position_history(next_pos)
+        self.current_target = target
 
-                    # Si terminamos el camino BFS, limpiarlo
-                    if self.bfs_path_index >= len(self.bfs_path):
-                        print(f"CPU {self.player_id}: ✓ Completó camino BFS")
-                        self.bfs_path = []
-                        self.bfs_path_index = 0
-                        self.no_progress_counter = 0
+        # Agregar posición actual al historial
+        self.position_history.append((self.pos.x, self.pos.y))
+        if len(self.position_history) > self.max_history_length:
+            self.position_history.pop(0)
+
+        # Detectar oscilación (cuando se queda pegado en bucle)
+        if len(self.position_history) >= self.oscillation_threshold:
+            position_counts = {}
+            for pos in self.position_history:
+                position_counts[pos] = position_counts.get(pos, 0) + 1
+
+            for count in position_counts.values():
+                if count >= self.oscillation_threshold:
+                    print(f"CPU {self.player_id}: 🔄 Oscilación detectada, usando BFS como fallback")
+                    # FALLBACK: Usar BFS solo cuando se queda pegado
+                    self._move_via_bfs(target)
                     return
-                else:
-                    # Si falló el movimiento, invalidar el camino
-                    print(f"CPU {self.player_id}: ✗ Camino BFS bloqueado, recalculando")
-                    self.bfs_path = []
-                    self.bfs_path_index = 0
-            else:
-                # Si la posición ya no es válida, invalidar el camino
-                self.bfs_path = []
-                self.bfs_path_index = 0
 
-        # Calcular distancia actual al objetivo
+        # Detectar falta de progreso (cuando no avanza)
         current_distance = abs(target.x - self.pos.x) + abs(target.y - self.pos.y)
 
-        # Si ya está en el destino
-        if current_distance == 0:
-            self.bfs_path = []
-            self.bfs_path_index = 0
-            self.no_progress_counter = 0
-            self.position_history = []
-            return
-
-        # DETECCIÓN DE NO PROGRESO
         if self.last_distance_to_target is not None:
             if current_distance >= self.last_distance_to_target:
                 self.no_progress_counter += 1
             else:
                 self.no_progress_counter = 0
 
+            if self.no_progress_counter >= self.max_no_progress:
+                print(f"CPU {self.player_id}: 🛑 Sin progreso detectado, usando BFS como fallback")
+                # FALLBACK: Usar BFS solo cuando no progresa
+                self._move_via_bfs(target)
+                self.no_progress_counter = 0
+                return
+
         self.last_distance_to_target = current_distance
 
-        # DETECCIÓN DE OSCILACIÓN (visitando las mismas posiciones)
-        is_oscillating = self._is_oscillating()
+        # ===== MOVIMIENTO GREEDY NORMAL (MÉTODO PRINCIPAL) =====
 
-        # Si está oscilando o sin progreso, activar BFS inmediatamente
-        if is_oscillating or self.no_progress_counter >= self.max_no_progress:
-            if is_oscillating:
-                print(f"CPU {self.player_id}: ⚠️ OSCILACIÓN detectada, activando BFS")
-            else:
-                print(
-                    f"CPU {self.player_id}: ⚠️ Sin progreso por {self.no_progress_counter} movimientos, activando BFS")
+        best_move = None
+        best_score = float('-inf')
 
-            path = self._limited_bfs(target, max_depth=35)
-
-            if path and len(path) > 1:
-                self.bfs_path = path[1:]
-                self.bfs_path_index = 0
-                self.no_progress_counter = 0
-                self.position_history = []
-
-                next_step = self.bfs_path[0]
-                if self.execute_move(next_step, 0.016):
-                    self.bfs_path_index = 1
-                    self._add_to_position_history(next_step)
-                    return
-            else:
-                print(f"CPU {self.player_id}: ✗ BFS no encontró camino")
-                self.position_history = []
-                self.no_progress_counter = 0
-
-        # Evaluar movimientos posibles
-        moves = []
+        # Evaluar las 4 direcciones posibles (horizonte pequeño: solo 1 paso)
         directions = [
             Position(self.pos.x + 1, self.pos.y),  # Este
             Position(self.pos.x - 1, self.pos.y),  # Oeste
@@ -355,45 +443,67 @@ class MediumAI(CPUPlayer):
             if not self._is_valid_move(direction):
                 continue
 
-            new_distance = abs(target.x - direction.x) + abs(target.y - direction.y)
+            # Evaluar con función heurística simple:
+            # score = -distancia (queremos minimizar distancia)
+            distance_to_goal = abs(target.x - direction.x) + abs(target.y - direction.y)
 
-            # Calcular score
-            distance_improvement = current_distance - new_distance
-            safety_score = self._calculate_safety_score(direction)
+            # Componente adicional: penalizar regresar a posiciones recientes
+            position_penalty = 0
+            if (direction.x, direction.y) in self.position_history[-3:]:
+                position_penalty = 5  # Penalización por visitar posición reciente
 
-            # PENALIZAR posiciones visitadas recientemente
-            visit_penalty = self._get_visit_penalty(direction)
+            # Score final: α*(-distance) - β*(weather_penalty) - γ*(position_penalty)
+            weather_multiplier = self.game.weather_system.get_stamina_penalty()
+            score = -distance_to_goal - (weather_multiplier - 1.0) * 2 - position_penalty
 
-            move_score = distance_improvement * 10.0 + safety_score - visit_penalty
+            # Seleccionar el movimiento con mejor score (puntuación máxima)
+            if score > best_score:
+                best_score = score
+                best_move = direction
 
-            moves.append((direction, move_score, new_distance))
+        # Ejecutar el mejor movimiento greedy
+        if best_move:
+            success = self.execute_move(best_move, 0.016)
+            if not success:
+                print(f"CPU {self.player_id}: ⚠️ Movimiento greedy falló, intentando otro")
 
-        if not moves:
-            # No hay movimientos válidos
-            print(f"CPU {self.player_id}: ⚠️ No hay movimientos válidos, usando BFS")
-            path = self._limited_bfs(target, max_depth=35)
+    def _greedy_move_towards_safe(self, target: Position):
+        """
+        Versión segura de movimiento greedy con BFS como fallback.
+        Útil cuando se dirige al parque para descansar.
+        USA GREEDY como principal, BFS solo si falla.
+        """
+        # Intentar movimiento GREEDY primero (método principal)
+        best_move = None
+        best_score = float('-inf')
 
-            if path and len(path) > 1:
-                self.bfs_path = path[1:]
-                self.bfs_path_index = 0
-                self.no_progress_counter = 0
-                self.position_history = []
+        directions = [
+            Position(self.pos.x + 1, self.pos.y),
+            Position(self.pos.x - 1, self.pos.y),
+            Position(self.pos.x, self.pos.y + 1),
+            Position(self.pos.x, self.pos.y - 1)
+        ]
 
-                next_step = self.bfs_path[0]
-                if self.execute_move(next_step, 0.016):
-                    self.bfs_path_index = 1
-                    self._add_to_position_history(next_step)
-            return
+        for direction in directions:
+            if not self._is_valid_move(direction):
+                continue
 
-        # Ordenar por score (mayor es mejor)
-        moves.sort(key=lambda x: x[1], reverse=True)
+            # Heurística simple: minimizar distancia
+            distance = abs(target.x - direction.x) + abs(target.y - direction.y)
+            score = -distance
 
-        # Ejecutar el mejor movimiento
-        best_direction, best_score, best_distance = moves[0]
+            if score > best_score:
+                best_score = score
+                best_move = direction
 
-        success = self.execute_move(best_direction, 0.016)
-        if success:
-            self._add_to_position_history(best_direction)
+        if best_move:
+            success = self.execute_move(best_move, 0.016)
+            if success:
+                return
+
+        # FALLBACK: Si el movimiento greedy falló, usar BFS
+        print(f"CPU {self.player_id}: 🔄 Greedy falló, usando BFS como fallback")
+        self._move_via_bfs(target)
 
     def _add_to_position_history(self, pos: Position):
         """Añade una posición al historial."""
@@ -430,6 +540,31 @@ class MediumAI(CPUPlayer):
         # Penalización progresiva
         return count * 5.0
 
+    def _is_in_park(self) -> bool:
+        """
+        Verifica si el CPU está actualmente en un parque.
+
+        Returns:
+            True si está en un parque, False en caso contrario
+        """
+        if self.pos.y >= len(self.game.tiles) or self.pos.x >= len(self.game.tiles[self.pos.y]):
+            return False
+
+        tile_char = self.game.tiles[self.pos.y][self.pos.x]
+        tile_info = self.game.legend.get(tile_char, {})
+
+        # Obtener tipo y nombre del tile
+        tile_type = tile_info.get('tipo', '').lower()
+        tile_name = tile_info.get('name', '').lower()
+
+        # Verificar si es parque (por tipo o nombre)
+        is_park = (tile_type == 'park' or
+                   'park' in tile_type or
+                   'parque' in tile_name or
+                   'parque' in tile_type)
+
+        return is_park
+
     def _calculate_safety_score(self, pos: Position) -> float:
         """
         Calcula un score de seguridad basado en espacios abiertos adyacentes.
@@ -452,6 +587,80 @@ class MediumAI(CPUPlayer):
                 safety_score += 1.0
 
         return safety_score
+
+    def _move_via_bfs(self, target: Position):
+        """
+        Movimiento usando BFS SOLO COMO FALLBACK cuando el greedy falla.
+        NO es el método principal de movimiento.
+        """
+        # Si no hay camino calculado o ya terminó
+        if not self.bfs_path or self.bfs_path_index >= len(self.bfs_path):
+            # Calcular nuevo camino BFS
+            self.bfs_path = self._bfs_path(self.pos, target)
+            self.bfs_path_index = 0
+
+            if not self.bfs_path:
+                return
+
+        # Obtener siguiente posición en el camino
+        if self.bfs_path_index < len(self.bfs_path):
+            next_pos = self.bfs_path[self.bfs_path_index]
+
+            # Verificar que la posición es válida y adyacente
+            if self._is_valid_move(next_pos):
+                distance = abs(next_pos.x - self.pos.x) + abs(next_pos.y - self.pos.y)
+                if distance == 1:
+                    success = self.execute_move(next_pos, 0.016)
+                    if success:
+                        self.bfs_path_index += 1
+                    else:
+                        # Si falló, recalcular camino
+                        self.bfs_path = []
+                        self.bfs_path_index = 0
+                else:
+                    # Camino inválido, recalcular
+                    self.bfs_path = []
+                    self.bfs_path_index = 0
+            else:
+                # Posición bloqueada, recalcular camino
+                self.bfs_path = []
+                self.bfs_path_index = 0
+
+    def _bfs_path(self, start: Position, goal: Position) -> List[Position]:
+        """
+        BFS simple para encontrar camino (SOLO FALLBACK).
+        """
+        from collections import deque
+
+        if start.x == goal.x and start.y == goal.y:
+            return []
+
+        visited = set()
+        queue = deque([(start, [])])
+        visited.add((start.x, start.y))
+
+        while queue:
+            current_pos, path = queue.popleft()
+
+            # Vecinos (4 direcciones)
+            neighbors = [
+                Position(current_pos.x + 1, current_pos.y),
+                Position(current_pos.x - 1, current_pos.y),
+                Position(current_pos.x, current_pos.y + 1),
+                Position(current_pos.x, current_pos.y - 1)
+            ]
+
+            for neighbor in neighbors:
+                # Verificar si es el objetivo
+                if neighbor.x == goal.x and neighbor.y == goal.y:
+                    return path + [neighbor]
+
+                # Verificar si es válido y no visitado
+                if self._is_valid_move(neighbor) and (neighbor.x, neighbor.y) not in visited:
+                    visited.add((neighbor.x, neighbor.y))
+                    queue.append((neighbor, path + [neighbor]))
+
+        return []  # No se encontró camino
 
     def _limited_bfs(self, target: Position, max_depth: int = 35) -> Optional[List[Position]]:
         """
@@ -497,9 +706,6 @@ class MediumAI(CPUPlayer):
         print(f"CPU {self.player_id}: ✗ BFS no encontró camino en {max_depth} pasos")
         return None
 
-    def _greedy_move_towards(self, target: Position):
-        """Redirige al método seguro mejorado."""
-        self._greedy_move_towards_safe(target)
 
 # ============================================================================
 # NIVEL DIFÍCIL - ALGORITMOS DE GRAFOS (A* + TSP) CON ESTRATEGIA DE DESCANSO
